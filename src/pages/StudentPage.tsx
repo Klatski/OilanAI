@@ -1,33 +1,65 @@
 import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { MOCK_LESSONS } from "../data/mockLessons";
-import { MOCK_PROGRESS } from "../data/mockProgress";
+import { useProgress } from "../context/ProgressContext";
+import { getSubjectById, SUBJECTS } from "../data/mockSubjects";
 
 export function StudentPage() {
   const { currentUser } = useAuth();
+  const { getSubjectProgress } = useProgress();
   const navigate = useNavigate();
+  const { subjectId } = useParams();
 
-  const progress = useMemo(
-    () => MOCK_PROGRESS.find((p) => p.userId === currentUser?.id),
-    [currentUser]
-  );
+  const subject = useMemo(() => getSubjectById(subjectId), [subjectId]);
 
-  const completedIds = new Set(progress?.completedLessons ?? []);
-  const currentLevel = progress?.level ?? 1;
+  if (!subject) {
+    return <Navigate to="/student" replace />;
+  }
 
-  const xpForNext = currentLevel * 150;
-  const currentXp = progress?.xp ?? 0;
-  const xpInLevel = currentXp % xpForNext;
+  const progress = getSubjectProgress(currentUser?.id, subject.id);
+  const completedIds = new Set(progress.completedLessons);
+
+  const currentLevel = progress.completedLessons.length;
+  const totalLessons = subject.lessons.length;
+
+  const xpForNext = 150;
+  const xpInLevel = progress.xp % xpForNext;
   const xpPercent = Math.min(100, Math.round((xpInLevel / xpForNext) * 100));
 
-  const openLesson = (id: number) => {
-    navigate(`/student/chat?lesson=${id}`);
+  const openLesson = (lessonId: number) => {
+    navigate(`/student/chat?subject=${subject.id}&lesson=${lessonId}`);
   };
 
   return (
     <div className="student-page">
+      <div className="subject-breadcrumb">
+        <Link to="/student" className="subject-breadcrumb__back">
+          ← Все предметы
+        </Link>
+        <div className="subject-breadcrumb__tabs">
+          {SUBJECTS.map((s) => (
+            <Link
+              key={s.id}
+              to={`/student/subject/${s.id}`}
+              className={`subject-breadcrumb__tab ${
+                s.id === subject.id ? "active" : ""
+              }`}
+              style={
+                s.id === subject.id
+                  ? ({ "--subject-accent": s.accent } as React.CSSProperties)
+                  : undefined
+              }
+            >
+              <span>{s.icon}</span>
+              <span className="subject-breadcrumb__tab-name">
+                {s.shortName}
+              </span>
+            </Link>
+          ))}
+        </div>
+      </div>
+
       <section className="student-hero">
         <motion.div
           className="student-hero__card"
@@ -36,48 +68,42 @@ export function StudentPage() {
           transition={{ duration: 0.4 }}
         >
           <div className="student-hero__greeting">
-            <span className="student-hero__avatar">{currentUser?.avatar}</span>
+            <span
+              className="student-hero__avatar"
+              style={{ background: subject.gradient }}
+            >
+              {subject.icon}
+            </span>
             <div>
-              <div className="student-hero__hello">
-                Привет, {currentUser?.name.split(" ")[0]}!
-              </div>
-              <div className="student-hero__sub">
-                Готов подумать самостоятельно сегодня?
-              </div>
+              <div className="student-hero__hello">{subject.name}</div>
+              <div className="student-hero__sub">{subject.description}</div>
             </div>
           </div>
 
           <div className="student-hero__stats">
             <div className="stat">
               <div className="stat__value">
-                {progress?.level ?? 1}
-                <span className="stat__suffix">ур.</span>
+                {currentLevel}
+                <span className="stat__suffix">/ {totalLessons}</span>
               </div>
-              <div className="stat__label">Уровень</div>
+              <div className="stat__label">Уроков пройдено</div>
             </div>
             <div className="stat">
-              <div className="stat__value">{progress?.xp ?? 0}</div>
-              <div className="stat__label">XP</div>
-            </div>
-            <div className="stat">
-              <div className="stat__value">
-                {progress?.promptQuality ?? 0}
-                <span className="stat__suffix">%</span>
-              </div>
-              <div className="stat__label">Качество промптов</div>
+              <div className="stat__value">{progress.xp}</div>
+              <div className="stat__label">XP по предмету</div>
             </div>
             <div className="stat">
               <div className="stat__value stat__value--accent">
-                {progress?.thinkingIndependence ?? 0}
+                {Math.round((currentLevel / totalLessons) * 100)}
                 <span className="stat__suffix">%</span>
               </div>
-              <div className="stat__label">Самостоятельность</div>
+              <div className="stat__label">Прогресс</div>
             </div>
           </div>
 
           <div className="student-hero__xp">
             <div className="student-hero__xp-head">
-              <span>Прогресс до следующего уровня</span>
+              <span>Прогресс до следующего уровня XP</span>
               <span>
                 {xpInLevel} / {xpForNext} XP
               </span>
@@ -88,6 +114,7 @@ export function StudentPage() {
                 initial={{ width: 0 }}
                 animate={{ width: `${xpPercent}%` }}
                 transition={{ duration: 0.9, ease: "easeOut" }}
+                style={{ background: subject.gradient }}
               />
             </div>
           </div>
@@ -96,12 +123,15 @@ export function StudentPage() {
 
       <section className="quest-map">
         <div className="quest-map__header">
-          <h2>Карта Прогрессивного Квеста</h2>
-          <p>15 точек-уровней. Светящиеся — открыты. Закрытые — под туманом.</p>
+          <h2>Карта квеста — {subject.name}</h2>
+          <p>
+            {totalLessons} точек-уровней. Открытые уровни светятся. Следующие
+            разблокируются после прохождения текущего.
+          </p>
         </div>
 
         <div className="quest-map__grid">
-          {MOCK_LESSONS.map((lesson, idx) => {
+          {subject.lessons.map((lesson, idx) => {
             const done = completedIds.has(lesson.id);
             const unlocked = lesson.id <= currentLevel + 1;
             const active = lesson.id === currentLevel + 1 && !done;
@@ -118,8 +148,18 @@ export function StudentPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, delay: idx * 0.04 }}
                 whileHover={unlocked ? { y: -4, scale: 1.02 } : {}}
+                style={
+                  { "--subject-accent": subject.accent } as React.CSSProperties
+                }
               >
-                <div className="quest-node__icon">
+                <div
+                  className="quest-node__icon"
+                  style={
+                    done || active
+                      ? { background: subject.gradient }
+                      : undefined
+                  }
+                >
                   {unlocked ? lesson.icon : "🔒"}
                 </div>
                 <div className="quest-node__body">

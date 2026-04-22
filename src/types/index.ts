@@ -30,9 +30,32 @@ export interface Lesson {
   icon: string;
 }
 
+export interface Subject {
+  id: string;
+  name: string;
+  shortName: string;
+  icon: string;
+  accent: string;
+  gradient: string;
+  description: string;
+  lessons: Lesson[];
+}
+
+export interface SubjectProgress {
+  completedLessons: number[];
+  xp: number;
+}
+
+export interface UserProgressMap {
+  [subjectId: string]: SubjectProgress;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "ai" | "system";
   text: string;
   timestamp: number;
+  /** Optional visual marker. "reflection-feedback" renders with a highlighted
+   *  "итоговый фидбэк" border so saved sessions can show it distinctly. */
+  kind?: "intro" | "reflection-feedback";
 }

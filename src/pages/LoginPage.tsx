@@ -48,7 +48,7 @@ export function LoginPage() {
         <div className="login-card__logo">
           <div className="login-card__orb" />
           <h1 className="login-card__title">
-            Cyber-Socratic <span className="accent">Arena</span>
+            Oilan<span className="accent">AI</span>
           </h1>
           <p className="login-card__subtitle">Архитектор Смыслов</p>
         </div>

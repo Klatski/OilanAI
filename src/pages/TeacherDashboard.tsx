@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { MOCK_PROGRESS } from "../data/mockProgress";
+import { SUBJECTS } from "../data/mockSubjects";
 import { useAuth } from "../context/AuthContext";
+import { useProgress } from "../context/ProgressContext";
 
 function formatDate(iso: string) {
   try {
@@ -23,21 +25,61 @@ function daysSince(iso: string) {
 
 export function TeacherDashboard() {
   const { currentUser } = useAuth();
+  const { getUserProgress } = useProgress();
+
+  const enrichedStudents = useMemo(() => {
+    return MOCK_PROGRESS.map((s) => {
+      const userProgress = getUserProgress(s.userId);
+      let totalCompleted = 0;
+      let liveXp = 0;
+      const subjectsStats = SUBJECTS.map((subj) => {
+        const p = userProgress[subj.id];
+        const completed = p?.completedLessons.length ?? 0;
+        const xp = p?.xp ?? 0;
+        totalCompleted += completed;
+        liveXp += xp;
+        return {
+          subjectId: subj.id,
+          subjectName: subj.shortName,
+          icon: subj.icon,
+          accent: subj.accent,
+          completed,
+          total: subj.lessons.length,
+          xp,
+        };
+      });
+      return {
+        ...s,
+        subjectsStats,
+        totalCompleted,
+        liveXp: Math.max(liveXp, s.xp),
+      };
+    });
+  }, [getUserProgress]);
 
   const stats = useMemo(() => {
-    const total = MOCK_PROGRESS.length;
-    const activeToday = MOCK_PROGRESS.filter(
+    const total = enrichedStudents.length;
+    const activeToday = enrichedStudents.filter(
       (s) => daysSince(s.lastActive) <= 2
     ).length;
-    const avgXp = Math.round(
-      MOCK_PROGRESS.reduce((a, s) => a + s.xp, 0) / total
-    );
-    const avgIndependence = Math.round(
-      MOCK_PROGRESS.reduce((a, s) => a + s.thinkingIndependence, 0) / total
-    );
+    const avgXp =
+      total > 0
+        ? Math.round(
+            enrichedStudents.reduce((a, s) => a + s.liveXp, 0) / total
+          )
+        : 0;
+    const avgIndependence =
+      total > 0
+        ? Math.round(
+            enrichedStudents.reduce(
+              (a, s) => a + s.thinkingIndependence,
+              0
+            ) / total
+          )
+        : 0;
 
     const topicMap = new Map<string, number>();
-    MOCK_PROGRESS.forEach((s) =>
+    enrichedStudents.forEach((s) =>
       s.weakTopics.forEach((t) => topicMap.set(t, (topicMap.get(t) ?? 0) + 1))
     );
     const topProblemTopics = Array.from(topicMap.entries())
@@ -45,11 +87,41 @@ export function TeacherDashboard() {
       .slice(0, 3);
 
     return { total, activeToday, avgXp, avgIndependence, topProblemTopics };
-  }, []);
+  }, [enrichedStudents]);
+
+  const subjectBreakdown = useMemo(() => {
+    return SUBJECTS.map((subj) => {
+      let totalDone = 0;
+      let totalPossible = 0;
+      let studentsStarted = 0;
+      enrichedStudents.forEach((s) => {
+        const stat = s.subjectsStats.find((x) => x.subjectId === subj.id);
+        if (stat) {
+          totalDone += stat.completed;
+          totalPossible += stat.total;
+          if (stat.completed > 0) studentsStarted += 1;
+        }
+      });
+      const percent =
+        totalPossible > 0
+          ? Math.round((totalDone / totalPossible) * 100)
+          : 0;
+      return {
+        id: subj.id,
+        name: subj.shortName,
+        icon: subj.icon,
+        accent: subj.accent,
+        gradient: subj.gradient,
+        percent,
+        studentsStarted,
+        totalStudents: enrichedStudents.length,
+      };
+    });
+  }, [enrichedStudents]);
 
   const sorted = useMemo(
-    () => [...MOCK_PROGRESS].sort((a, b) => b.xp - a.xp),
-    []
+    () => [...enrichedStudents].sort((a, b) => b.liveXp - a.liveXp),
+    [enrichedStudents]
   );
 
   const getStatus = (independence: number, promptQuality: number) => {
@@ -75,7 +147,8 @@ export function TeacherDashboard() {
             Пульс класса — <span className="accent">аналитика</span>
           </h1>
           <p className="teacher-hero__sub">
-            Показывает, кто думает самостоятельно, а кто «зависает» на ИИ.
+            Показывает, кто думает самостоятельно, а кто «зависает» на ИИ — по
+            всем предметам сразу.
           </p>
         </div>
       </motion.div>
@@ -101,13 +174,56 @@ export function TeacherDashboard() {
         </div>
       </section>
 
+      <section className="subjects-breakdown">
+        <div className="subjects-breakdown__head">
+          <h2>Активность по предметам</h2>
+          <span className="teacher-table-card__meta">
+            Среднее прохождение уроков класса
+          </span>
+        </div>
+        <div className="subjects-breakdown__grid">
+          {subjectBreakdown.map((s, i) => (
+            <motion.div
+              key={s.id}
+              className="subject-stat"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }}
+            >
+              <div className="subject-stat__top">
+                <div
+                  className="subject-stat__icon"
+                  style={{ background: s.gradient }}
+                >
+                  {s.icon}
+                </div>
+                <div>
+                  <div className="subject-stat__name">{s.name}</div>
+                  <div className="subject-stat__meta">
+                    {s.studentsStarted} из {s.totalStudents} начали
+                  </div>
+                </div>
+                <div className="subject-stat__percent">{s.percent}%</div>
+              </div>
+              <div className="xp-bar">
+                <motion.div
+                  className="xp-bar__fill"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${s.percent}%` }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                  style={{ background: s.gradient }}
+                />
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
       <section className="teacher-grid">
         <div className="teacher-table-card">
           <div className="teacher-table-card__head">
             <h2>Рейтинг учеников</h2>
-            <span className="teacher-table-card__meta">
-              Сортировка по XP
-            </span>
+            <span className="teacher-table-card__meta">Сортировка по XP</span>
           </div>
           <div className="teacher-table">
             <div className="teacher-table__head">
@@ -135,14 +251,29 @@ export function TeacherDashboard() {
                     <div>
                       <div className="teacher-table__name">{s.name}</div>
                       <div className="teacher-table__meta">
-                        {s.completedLessons.length} уроков пройдено
+                        {s.totalCompleted} уроков по всем предметам
+                      </div>
+                      <div className="teacher-table__subjects">
+                        {s.subjectsStats
+                          .filter((x) => x.completed > 0)
+                          .slice(0, 6)
+                          .map((x) => (
+                            <span
+                              key={x.subjectId}
+                              title={`${x.subjectName}: ${x.completed}/${x.total}`}
+                              className="teacher-table__subject-chip"
+                              style={{ borderColor: `${x.accent}60` }}
+                            >
+                              {x.icon} {x.completed}
+                            </span>
+                          ))}
                       </div>
                     </div>
                   </div>
                   <div className="teacher-table__cell">
                     <span className="level-pill">{s.level}</span>
                   </div>
-                  <div className="teacher-table__cell">{s.xp}</div>
+                  <div className="teacher-table__cell">{s.liveXp}</div>
                   <div className="teacher-table__cell">
                     <MiniBar value={s.promptQuality} />
                   </div>
@@ -168,6 +299,9 @@ export function TeacherDashboard() {
             <h3 className="panel__title">Проблемные темы класса</h3>
             <p className="panel__sub">Топ-3 тем, где ученики спотыкаются</p>
             <ol className="problem-topics">
+              {stats.topProblemTopics.length === 0 && (
+                <li className="panel__text">Пока нет данных.</li>
+              )}
               {stats.topProblemTopics.map(([topic, count], idx) => (
                 <li key={topic} className="problem-topic">
                   <span className="problem-topic__rank">#{idx + 1}</span>
@@ -186,8 +320,8 @@ export function TeacherDashboard() {
             <p className="panel__text">
               Обратите внимание на <b>Тимура</b>: низкая самостоятельность
               (38%) и слабое качество промптов. Возможно, он копирует ответы.
-              Рекомендуем провести индивидуальную беседу и поставить уровень
-              «Сократ-тренировка» вручную.
+              Рекомендуем провести индивидуальную беседу и назначить
+              «Сократ-тренировку» вручную.
             </p>
           </div>
         </div>

@@ -6,25 +6,43 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { MOCK_LESSONS } from "../data/mockLessons";
+import { getLessonById, getSubjectById, SUBJECTS } from "../data/mockSubjects";
 import { useAuth } from "../context/AuthContext";
+import { useProgress } from "../context/ProgressContext";
 import {
-  generateReflectionFeedback,
-  generateSocraticReply,
-} from "../utils/socraticAI";
+  askIntroMessage,
+  askReflectionFeedback,
+  askSocraticReply,
+  getSourceLabel,
+  type AISource,
+} from "../utils/aiClient";
+import {
+  loadChatSession,
+  resetChatSession,
+  saveChatSession,
+  type ChatSession,
+} from "../utils/chatStorage";
 import type { ChatMessage } from "../types";
 
 type Stage = "barrier" | "chat" | "reflection" | "done";
 
 export function ChatPage() {
   const { currentUser } = useAuth();
+  const { completeLesson, getSubjectProgress } = useProgress();
   const [params] = useSearchParams();
-  const lessonId = Number(params.get("lesson")) || 1;
+
+  const subjectParam = params.get("subject") ?? "math";
+  const lessonParam = Number(params.get("lesson")) || 1;
+
+  const subject = useMemo(
+    () => getSubjectById(subjectParam) ?? SUBJECTS[0],
+    [subjectParam]
+  );
   const lesson = useMemo(
-    () => MOCK_LESSONS.find((l) => l.id === lessonId) ?? MOCK_LESSONS[0],
-    [lessonId]
+    () => getLessonById(subject.id, lessonParam) ?? subject.lessons[0],
+    [subject, lessonParam]
   );
 
   const [stage, setStage] = useState<Stage>("barrier");
@@ -33,47 +51,141 @@ export function ChatPage() {
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [reflection, setReflection] = useState("");
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [xpGained, setXpGained] = useState(0);
+  const [aiSource, setAiSource] = useState<AISource | null>(null);
+  const [completed, setCompleted] = useState(false);
+  const [restoredBanner, setRestoredBanner] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const hydratedRef = useRef(false);
 
+  // ---------------------------------------------------------------------------
+  // Hydrate state from localStorage every time the user/lesson changes.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
+    hydratedRef.current = false;
+    const session = loadChatSession(currentUser?.id, subject.id, lesson.id);
+
+    if (session && session.knowledge) {
+      setKnowledge(session.knowledge);
+      setMessages(session.messages ?? []);
+      setReflection(session.reflection ?? "");
+      setXpGained(session.xpGained ?? 0);
+      setCompleted(session.completed ?? false);
+      setAiSource(session.aiSource ?? null);
+      setStage("chat");
+      setRestoredBanner(true);
+      const t = setTimeout(() => setRestoredBanner(false), 3500);
+      hydratedRef.current = true;
+      return () => clearTimeout(t);
+    }
+
     setStage("barrier");
     setKnowledge("");
     setMessages([]);
     setInput("");
     setReflection("");
-    setFeedback(null);
-  }, [lessonId]);
+    setXpGained(0);
+    setAiSource(null);
+    setCompleted(false);
+    setRestoredBanner(false);
+    hydratedRef.current = true;
+  }, [lesson.id, subject.id, currentUser?.id]);
 
+  // ---------------------------------------------------------------------------
+  // Persist session after any meaningful change. We only save once hydrated
+  // to avoid clobbering storage with empty initial state.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!hydratedRef.current || !currentUser?.id) return;
+    if (stage === "barrier" || !knowledge) return;
+
+    const next: ChatSession = {
+      userId: currentUser.id,
+      subjectId: subject.id,
+      lessonId: lesson.id,
+      knowledge,
+      messages,
+      reflection,
+      feedback: "",
+      xpGained,
+      completed,
+      aiSource,
+      updatedAt: Date.now(),
+    };
+    saveChatSession(next);
+  }, [
+    messages,
+    knowledge,
+    reflection,
+    xpGained,
+    completed,
+    aiSource,
+    stage,
+    subject.id,
+    lesson.id,
+    currentUser?.id,
+  ]);
+
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, isThinking]);
+  }, [messages, isThinking, stage]);
 
-  const handleBarrierSubmit = (e: FormEvent) => {
+  if (!subject || !lesson) {
+    return <Navigate to="/student" replace />;
+  }
+
+  const lessonAlreadyCompleted = currentUser?.id
+    ? getSubjectProgress(currentUser.id, subject.id).completedLessons.includes(
+        lesson.id
+      )
+    : false;
+
+  const handleBarrierSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (knowledge.trim().length < 10) return;
+    if (knowledge.trim().length < 10 || isThinking) return;
 
-    const intro: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: "ai",
-      text: `Привет, ${
-        currentUser?.name.split(" ")[0] ?? "друг"
-      }! Ты написал, что уже знаешь кое-что про «${
-        lesson.topic
-      }» — это отличная стартовая точка. Я — Дух Знаний, и готовых ответов от меня не жди. Моя задача — вести тебя вопросами, а не решать за тебя.\n\nИтак, по теме «${
-        lesson.title
-      }»: что именно в этой теме тебе кажется самым запутанным? С чего хочешь начать распутывать клубок?`,
-      timestamp: Date.now(),
-    };
-    setMessages([intro]);
     setStage("chat");
+    setIsThinking(true);
+
+    const firstName = currentUser?.name?.split(" ")[0] ?? "друг";
+    const localIntro = `Привет, ${firstName}! Ты написал, что уже знаешь кое-что про «${subject.name}» — это отличная стартовая точка. Я — Дух Знаний, и готовых ответов от меня не жди. Моя задача — вести тебя вопросами, а не решать за тебя.\n\nИтак, по теме «${lesson.title}» (${lesson.topic}): что именно тебе кажется самым запутанным? С чего хочешь начать распутывать клубок?`;
+
+    try {
+      const intro = await askIntroMessage({
+        subject: subject.name,
+        lesson: lesson.title,
+        topic: lesson.topic,
+        knowledge,
+      });
+      setAiSource(intro.source);
+      const introMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        text: intro.text,
+        timestamp: Date.now(),
+        kind: "intro",
+      };
+      setMessages([introMsg]);
+    } catch {
+      const introMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        text: localIntro,
+        timestamp: Date.now(),
+        kind: "intro",
+      };
+      setMessages([introMsg]);
+    } finally {
+      setIsThinking(false);
+    }
   };
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = input.trim();
     if (!text || isThinking) return;
 
@@ -83,53 +195,174 @@ export function ChatPage() {
       text,
       timestamp: Date.now(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    const nextHistory = [...messages, userMsg];
+    setMessages(nextHistory);
     setInput("");
     setIsThinking(true);
 
-    const turn = messages.filter((m) => m.role === "user").length + 1;
+    try {
+      const reply = await askSocraticReply({
+        subject: subject.name,
+        lesson: lesson.title,
+        topic: lesson.topic,
+        knowledge,
+        history: nextHistory,
+        latestUserMessage: text,
+      });
 
-    window.setTimeout(() => {
-      const reply: ChatMessage = {
+      setAiSource(reply.source);
+      const aiMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "ai",
-        text: generateSocraticReply(text, {
-          topic: lesson.topic,
-          knowledge,
-          turn,
-        }),
+        text: reply.text,
         timestamp: Date.now(),
       };
-      setMessages((prev) => [...prev, reply]);
+      setMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      const aiMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        text: "Хм, похоже связь со мной пропала на секунду. Попробуй переформулировать вопрос ещё раз 🌊",
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+    } finally {
       setIsThinking(false);
-    }, 900 + Math.random() * 700);
+    }
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      void sendMessage();
     }
   };
 
-  const submitReflection = (e: FormEvent) => {
+  const submitReflection = async (e: FormEvent) => {
     e.preventDefault();
     if (reflection.trim().length < 10) return;
-    setFeedback(generateReflectionFeedback(reflection));
-    setStage("done");
+
+    const wasAlreadyCompleted = lessonAlreadyCompleted || completed;
+    const xp = wasAlreadyCompleted ? 0 : 40 + Math.min(60, reflection.length);
+
+    // Show celebratory "done" view only on first-time completion.
+    if (!wasAlreadyCompleted) {
+      setXpGained(xp);
+      setStage("done");
+    }
+    setIsThinking(true);
+
+    let feedbackText: string;
+    try {
+      const result = await askReflectionFeedback(reflection, messages, {
+        subject: subject.name,
+        lesson: lesson.title,
+        topic: lesson.topic,
+        knowledge,
+      });
+      setAiSource(result.source);
+      feedbackText = result.text;
+    } catch {
+      feedbackText =
+        "Отличная работа над рефлексией! Продолжай в том же духе — ты растёшь.";
+    }
+
+    const feedbackMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "ai",
+      text: feedbackText,
+      timestamp: Date.now(),
+      kind: "reflection-feedback",
+    };
+    setMessages((prev) => [...prev, feedbackMsg]);
+    setIsThinking(false);
+    setCompleted(true);
+
+    if (!wasAlreadyCompleted && currentUser?.id) {
+      try {
+        completeLesson(currentUser.id, subject.id, lesson.id, xp);
+      } catch {
+        /* never crash */
+      }
+    }
+
+    if (wasAlreadyCompleted) {
+      // Already done — stay in chat, don't spam "done" celebration again.
+      setStage("chat");
+      setReflection("");
+    }
+  };
+
+  const resumeDialogue = () => {
+    setStage("chat");
+  };
+
+  const startOver = () => {
+    if (
+      !window.confirm(
+        "Начать урок с нуля? Вся история чата в этом уроке будет удалена. Прогресс по предмету (XP и пройденные уроки) сохранится."
+      )
+    ) {
+      return;
+    }
+    resetChatSession(currentUser?.id, subject.id, lesson.id);
+    hydratedRef.current = false;
+    setStage("barrier");
+    setKnowledge("");
+    setMessages([]);
+    setInput("");
+    setReflection("");
+    setXpGained(0);
+    setCompleted(false);
+    setAiSource(null);
+    setRestoredBanner(false);
+    // re-enable persistence on next tick
+    setTimeout(() => {
+      hydratedRef.current = true;
+    }, 0);
   };
 
   const userMessagesCount = messages.filter((m) => m.role === "user").length;
   const canReflect = userMessagesCount >= 3;
+  const isCompletedView = completed || lessonAlreadyCompleted;
 
   return (
-    <div className="chat-page">
+    <div
+      className="chat-page"
+      style={{ "--subject-accent": subject.accent } as React.CSSProperties}
+    >
       <aside className="chat-side">
-        <div className="chat-side__lesson">
+        <Link to={`/student/subject/${subject.id}`} className="chat-side__back">
+          ← {subject.name}
+        </Link>
+
+        <div
+          className="chat-side__lesson"
+          style={{
+            background: `linear-gradient(180deg, ${subject.accent}18 0%, transparent 100%)`,
+            borderColor: `${subject.accent}40`,
+          }}
+        >
           <div className="chat-side__icon">{lesson.icon}</div>
           <div className="chat-side__title">{lesson.title}</div>
-          <div className="chat-side__topic">{lesson.topic}</div>
+          <div className="chat-side__topic" style={{ color: subject.accent }}>
+            {subject.name} · {lesson.topic}
+          </div>
           <p className="chat-side__desc">{lesson.description}</p>
+
+          {isCompletedView && (
+            <div
+              className="chat-side__done-pill"
+              style={{ borderColor: `${subject.accent}80` }}
+            >
+              ✓ Урок пройден
+            </div>
+          )}
+        </div>
+
+        <div className="chat-side__block">
+          <div className="chat-side__block-title">Движок ИИ</div>
+          <AiSourceBadge source={aiSource} />
         </div>
 
         <div className="chat-side__block">
@@ -160,7 +393,9 @@ export function ChatPage() {
             </li>
             <li
               className={
-                stage === "reflection"
+                isCompletedView
+                  ? "done"
+                  : stage === "reflection"
                   ? "active"
                   : stage === "done"
                   ? "done"
@@ -172,12 +407,31 @@ export function ChatPage() {
           </ul>
         </div>
 
-        {stage === "chat" && canReflect && (
+        {stage === "chat" && canReflect && !isCompletedView && (
           <button
             className="btn btn--ghost btn--full"
             onClick={() => setStage("reflection")}
           >
             Перейти к рефлексии →
+          </button>
+        )}
+
+        {stage === "chat" && isCompletedView && canReflect && (
+          <button
+            className="btn btn--ghost btn--full"
+            onClick={() => setStage("reflection")}
+            title="Опыт повторно не начисляется"
+          >
+            Написать новую рефлексию
+          </button>
+        )}
+
+        {stage !== "barrier" && (
+          <button
+            className="btn btn--danger-ghost btn--full"
+            onClick={startOver}
+          >
+            Начать заново
           </button>
         )}
       </aside>
@@ -194,15 +448,18 @@ export function ChatPage() {
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.3 }}
             >
-              <div className="barrier__orb" />
+              <div
+                className="barrier__orb"
+                style={{ background: subject.gradient }}
+              />
               <h2 className="barrier__title">
                 Прежде чем заговорить с ИИ —<br />
                 <span className="accent">что ты уже знаешь?</span>
               </h2>
               <p className="barrier__sub">
-                Тема: <b>{lesson.title}</b>. Напиши своими словами всё, что
-                помнишь, даже если это совсем немного. Только после этого ИИ
-                активируется.
+                Предмет: <b>{subject.name}</b> · Тема: <b>{lesson.title}</b>.
+                Напиши своими словами всё, что помнишь, даже если это совсем
+                немного. Только после этого ИИ активируется.
               </p>
               <textarea
                 className="barrier__textarea"
@@ -213,9 +470,7 @@ export function ChatPage() {
               />
               <div className="barrier__meta">
                 <span
-                  className={
-                    knowledge.trim().length >= 10 ? "ok" : "pending"
-                  }
+                  className={knowledge.trim().length >= 10 ? "ok" : "pending"}
                 >
                   {knowledge.trim().length} / 10+ символов
                 </span>
@@ -240,23 +495,86 @@ export function ChatPage() {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.3 }}
             >
+              {isCompletedView && stage !== "done" && (
+                <div
+                  className="chat-banner chat-banner--done"
+                  style={{
+                    borderColor: `${subject.accent}66`,
+                    background: `linear-gradient(90deg, ${subject.accent}14 0%, transparent 80%)`,
+                  }}
+                >
+                  <span className="chat-banner__icon">✓</span>
+                  <span className="chat-banner__text">
+                    <b>Урок пройден.</b> История сохранена — можешь продолжить
+                    диалог или перечитать переписку. Опыт повторно не
+                    начисляется.
+                  </span>
+                </div>
+              )}
+
+              {restoredBanner && (
+                <motion.div
+                  className="chat-banner chat-banner--restored"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <span className="chat-banner__icon">⏱</span>
+                  <span className="chat-banner__text">
+                    Восстановлена предыдущая сессия. Продолжай с того места, где
+                    остановился.
+                  </span>
+                </motion.div>
+              )}
+
               <div className="chat-window__messages" ref={scrollRef}>
                 {messages.map((m) => (
                   <motion.div
                     key={m.id}
-                    className={`msg msg--${m.role}`}
+                    className={`msg msg--${m.role} ${
+                      m.kind === "reflection-feedback"
+                        ? "msg--reflection-feedback"
+                        : ""
+                    }`}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25 }}
                   >
-                    {m.role === "ai" && <div className="msg__orb" />}
-                    <div className="msg__bubble">{m.text}</div>
+                    {m.role === "ai" && (
+                      <div
+                        className="msg__orb"
+                        style={{ background: subject.gradient }}
+                      />
+                    )}
+                    <div
+                      className="msg__bubble"
+                      style={
+                        m.role === "user"
+                          ? { background: subject.gradient }
+                          : m.kind === "reflection-feedback"
+                          ? { borderColor: `${subject.accent}80` }
+                          : undefined
+                      }
+                    >
+                      {m.kind === "reflection-feedback" && (
+                        <div
+                          className="msg__bubble-tag"
+                          style={{ color: subject.accent }}
+                        >
+                          итоговый фидбэк
+                        </div>
+                      )}
+                      {m.text}
+                    </div>
                   </motion.div>
                 ))}
 
                 {isThinking && (
                   <div className="msg msg--ai">
-                    <div className="msg__orb msg__orb--pulsing" />
+                    <div
+                      className="msg__orb msg__orb--pulsing"
+                      style={{ background: subject.gradient }}
+                    />
                     <div className="msg__bubble msg__bubble--typing">
                       <span />
                       <span />
@@ -273,10 +591,14 @@ export function ChatPage() {
                     animate={{ opacity: 1, y: 0 }}
                   >
                     <div className="reflection__title">
-                      Финальная рефлексия
+                      {isCompletedView
+                        ? "Новая рефлексия"
+                        : "Финальная рефлексия"}
                     </div>
                     <div className="reflection__sub">
-                      Напиши своими словами: что главное ты понял в этой теме?
+                      {isCompletedView
+                        ? "Можешь сформулировать новое понимание. Опыт повторно не начисляется."
+                        : "Напиши своими словами: что главное ты понял в этой теме?"}
                     </div>
                     <textarea
                       className="barrier__textarea"
@@ -285,17 +607,26 @@ export function ChatPage() {
                       onChange={(e) => setReflection(e.target.value)}
                       rows={5}
                     />
-                    <button
-                      className="btn btn--primary"
-                      type="submit"
-                      disabled={reflection.trim().length < 10}
-                    >
-                      Отправить рефлексию
-                    </button>
+                    <div className="reflection__actions">
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => setStage("chat")}
+                      >
+                        Назад в диалог
+                      </button>
+                      <button
+                        className="btn btn--primary"
+                        type="submit"
+                        disabled={reflection.trim().length < 10 || isThinking}
+                      >
+                        Отправить рефлексию
+                      </button>
+                    </div>
                   </motion.form>
                 )}
 
-                {stage === "done" && feedback && (
+                {stage === "done" && (
                   <motion.div
                     className="reflection__feedback"
                     initial={{ opacity: 0, scale: 0.95 }}
@@ -305,9 +636,25 @@ export function ChatPage() {
                     <div className="reflection__feedback-title">
                       Фидбэк Духа Знаний
                     </div>
-                    <div className="reflection__feedback-text">{feedback}</div>
                     <div className="reflection__feedback-xp">
-                      +{40 + Math.min(60, reflection.length)} XP
+                      +{xpGained} XP · урок засчитан ✓
+                    </div>
+                    <div className="reflection__feedback-actions">
+                      <button
+                        className="btn btn--ghost"
+                        onClick={resumeDialogue}
+                      >
+                        ← Продолжить диалог
+                      </button>
+                      <Link
+                        to={`/student/subject/${subject.id}`}
+                        className="btn btn--ghost"
+                      >
+                        Вернуться на карту
+                      </Link>
+                      <Link to="/student" className="btn btn--primary">
+                        К выбору предмета →
+                      </Link>
                     </div>
                   </motion.div>
                 )}
@@ -318,7 +665,7 @@ export function ChatPage() {
                   className="chat-input"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    sendMessage();
+                    void sendMessage();
                   }}
                 >
                   <textarea
@@ -342,6 +689,23 @@ export function ChatPage() {
           )}
         </AnimatePresence>
       </main>
+    </div>
+  );
+}
+
+function AiSourceBadge({ source }: { source: AISource | null }) {
+  if (!source) {
+    return <div className="ai-badge ai-badge--pending">ожидаем первого ответа…</div>;
+  }
+  const cls =
+    source === "local"
+      ? "ai-badge ai-badge--local"
+      : "ai-badge ai-badge--live";
+  const dot = source === "local" ? "◇" : "●";
+  return (
+    <div className={cls}>
+      <span className="ai-badge__dot">{dot}</span>
+      {getSourceLabel(source)}
     </div>
   );
 }

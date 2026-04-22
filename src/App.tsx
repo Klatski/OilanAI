@@ -1,8 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ProgressProvider } from "./context/ProgressContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Header } from "./components/Header";
 import { LoginPage } from "./pages/LoginPage";
+import { SubjectPickerPage } from "./pages/SubjectPickerPage";
 import { StudentPage } from "./pages/StudentPage";
 import { ChatPage } from "./pages/ChatPage";
 import { TeacherDashboard } from "./pages/TeacherDashboard";
@@ -19,6 +21,14 @@ function Shell() {
 
           <Route
             path="/student"
+            element={
+              <ProtectedRoute role="student">
+                <SubjectPickerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/subject/:subjectId"
             element={
               <ProtectedRoute role="student">
                 <StudentPage />
@@ -62,9 +72,11 @@ function Shell() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Shell />
-      </BrowserRouter>
+      <ProgressProvider>
+        <BrowserRouter>
+          <Shell />
+        </BrowserRouter>
+      </ProgressProvider>
     </AuthProvider>
   );
 }
