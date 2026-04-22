@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { AccountSwitcher } from "./AccountSwitcher";
+import { StreakBadge } from "./StreakBadge";
 import { useAuth } from "../context/AuthContext";
 
 export function Header() {
@@ -42,7 +43,10 @@ export function Header() {
         </nav>
       )}
 
-      <AccountSwitcher />
+      <div className="app-header__right">
+        {currentUser?.role === "student" && <StreakBadge />}
+        <AccountSwitcher />
+      </div>
     </header>
   );
 }

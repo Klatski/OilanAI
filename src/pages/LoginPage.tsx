@@ -87,28 +87,51 @@ export function LoginPage() {
           </button>
         </form>
 
+        <div className="login-card__tip">
+          <span className="login-card__tip-arrow" aria-hidden>
+            ↓
+          </span>
+          <span>
+            <strong>Нет аккаунта?</strong> Просто нажми на одну из
+            кнопок-карточек ниже — email и пароль подставятся сами, останется
+            кликнуть «Войти».
+          </span>
+        </div>
+
         <div className="login-card__hint">
-          <div className="login-card__hint-title">Демо-аккаунты</div>
+          <div className="login-card__hint-title">
+            Демо-аккаунты <span className="login-card__hint-pill">кликабельны</span>
+          </div>
           <div className="login-card__hint-grid">
             <button
               type="button"
-              className="login-card__hint-item"
+              className="login-card__hint-item login-card__hint-item--clickable"
               onClick={() => fill("student@demo.com", "student123")}
+              title="Нажми — поля заполнятся автоматически"
             >
-              <span className="login-card__hint-role">Ученик</span>
+              <span className="login-card__hint-role">
+                <span className="login-card__hint-emoji">🎓</span>
+                Ученик
+              </span>
               <span className="login-card__hint-creds">
                 student@demo.com / student123
               </span>
+              <span className="login-card__hint-cta">Нажми, чтобы войти →</span>
             </button>
             <button
               type="button"
-              className="login-card__hint-item"
+              className="login-card__hint-item login-card__hint-item--clickable"
               onClick={() => fill("teacher@demo.com", "teacher123")}
+              title="Нажми — поля заполнятся автоматически"
             >
-              <span className="login-card__hint-role">Учитель</span>
+              <span className="login-card__hint-role">
+                <span className="login-card__hint-emoji">🧑‍🏫</span>
+                Учитель
+              </span>
               <span className="login-card__hint-creds">
                 teacher@demo.com / teacher123
               </span>
+              <span className="login-card__hint-cta">Нажми, чтобы войти →</span>
             </button>
           </div>
           <div className="login-card__hint-note">

@@ -118,6 +118,27 @@ export function StudentPage() {
               />
             </div>
           </div>
+
+          <div className="student-hero__actions">
+            <Link
+              to={`/student/subject/${subject.id}/game`}
+              className="hero-cta"
+              style={
+                { "--subject-accent": subject.accent } as React.CSSProperties
+              }
+            >
+              <span className="hero-cta__icon">🎴</span>
+              <span className="hero-cta__body">
+                <span className="hero-cta__title">
+                  Мини-игра: карточки-пары
+                </span>
+                <span className="hero-cta__sub">
+                  Без интернета. Соедини термины и определения на время.
+                </span>
+              </span>
+              <span className="hero-cta__arrow">→</span>
+            </Link>
+          </div>
         </motion.div>
       </section>
 

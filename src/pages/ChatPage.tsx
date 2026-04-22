@@ -24,6 +24,7 @@ import {
   saveChatSession,
   type ChatSession,
 } from "../utils/chatStorage";
+import { touchStreak } from "../utils/streakStorage";
 import type { ChatMessage } from "../types";
 
 type Stage = "barrier" | "chat" | "reflection" | "done";
@@ -281,6 +282,10 @@ export function ChatPage() {
     if (!wasAlreadyCompleted && currentUser?.id) {
       try {
         completeLesson(currentUser.id, subject.id, lesson.id, xp);
+        touchStreak(currentUser.id);
+        // dispatch an app-wide event so the header streak badge
+        // updates immediately without a reload
+        window.dispatchEvent(new CustomEvent("oilanai:streak-changed"));
       } catch {
         /* never crash */
       }

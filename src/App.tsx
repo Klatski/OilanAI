@@ -3,10 +3,12 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ProgressProvider } from "./context/ProgressContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Header } from "./components/Header";
+import { OfflineBanner } from "./components/OfflineBanner";
 import { LoginPage } from "./pages/LoginPage";
 import { SubjectPickerPage } from "./pages/SubjectPickerPage";
 import { StudentPage } from "./pages/StudentPage";
 import { ChatPage } from "./pages/ChatPage";
+import { CardGamePage } from "./pages/CardGamePage";
 import { TeacherDashboard } from "./pages/TeacherDashboard";
 
 function Shell() {
@@ -14,6 +16,7 @@ function Shell() {
 
   return (
     <div className="app-shell">
+      <OfflineBanner />
       {currentUser && <Header />}
       <main className="app-main">
         <Routes>
@@ -40,6 +43,14 @@ function Shell() {
             element={
               <ProtectedRoute role="student">
                 <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/subject/:subjectId/game"
+            element={
+              <ProtectedRoute role="student">
+                <CardGamePage />
               </ProtectedRoute>
             }
           />

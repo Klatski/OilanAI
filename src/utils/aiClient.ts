@@ -4,6 +4,7 @@ import {
   type SocraticContext,
 } from "./socraticAI";
 import { buildSystemPrompt, type ChatStage } from "./prompts";
+import { sanitizeMath } from "./sanitizeMath";
 import type { ChatMessage } from "../types";
 
 /**
@@ -123,7 +124,7 @@ async function tryProxy(
     const data = (await res.json()) as { text?: string; error?: string };
     if (!data?.text) return null;
     proxyAvailable = true;
-    return data.text.trim();
+    return sanitizeMath(data.text.trim());
   } catch {
     proxyAvailable = false;
     return null;
@@ -166,7 +167,7 @@ async function callGeminiOnce(
     const data = await res.json();
     const text: string | undefined = data?.choices?.[0]?.message?.content;
     if (!text || !text.trim()) return { ok: false, status: 502 };
-    return { ok: true, text: text.trim() };
+    return { ok: true, text: sanitizeMath(text.trim()) };
   } catch {
     // AbortError or network error — treat as transient
     return { ok: false, status: 0 };
