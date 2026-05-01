@@ -16,7 +16,8 @@ import type { SubjectProgress, UserProgressMap } from "../types";
  * Per-user per-subject progress, persisted in localStorage.
  *
  * v2 schema (post school-structure refactor):
- *   - `completedTopics: string[]` — stable topic ids (e.g. "math.g7.q2.t3"),
+ *   - `completedTopics: string[]` — stable topic ids (e.g. "math.g7.q2.t3"
+ *       или "math.g7.q2.system-two-linear-equations"),
  *     replacing the old numeric `completedLessons`.
  *
  * Old v1 keys are ignored; demo progress for each user is re-seeded from

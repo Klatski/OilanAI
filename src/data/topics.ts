@@ -4,7 +4,8 @@ import { CURRICULUM, type TopicSeed } from "./curriculum";
 
 /**
  * Flatten the nested CURRICULUM table into a single Topic[] with stable ids
- * shaped like `${subjectId}.g${grade}.q${quarter}.t${order}`.
+ * shaped like `${subjectId}.g${grade}.q${quarter}.t${order}` или
+ * `${subjectId}.g${grade}.q${quarter}.${lessonSlug}` при заданном slug в сиде.
  *
  * The id MUST be deterministic across reloads — it's used as:
  *   - URL parameter on the chat page,
@@ -19,8 +20,13 @@ export function buildTopicId(
   subjectId: string,
   grade: Grade,
   quarter: Quarter,
-  order: number
+  order: number,
+  lessonSlug?: string | null
 ): string {
+  const slug = lessonSlug?.trim().replace(/[^a-z0-9-]/gi, "") ?? "";
+  if (slug.length > 0) {
+    return `${subjectId}.g${grade}.q${quarter}.${slug}`;
+  }
   return `${subjectId}.g${grade}.q${quarter}.t${order}`;
 }
 
@@ -31,8 +37,24 @@ function expandSeed(
   quarter: Quarter,
   order: number
 ): Topic {
+  const rawSlug = seed.lessonSlug?.trim() ?? "";
+  const slugSegment =
+    rawSlug.length > 0
+      ? rawSlug.replace(/[^a-z0-9-]/gi, "").toLowerCase()
+      : "";
+  const lessonSlug = slugSegment || `t${order}`;
+
+  const learningGoal =
+    seed.learningGoal?.trim() || seed.description || "";
+  const prerequisites =
+    seed.prerequisites?.trim() ||
+    "Опирайся на то, что уже проходили в этом классе по предмету.";
+  const barrierHintExample =
+    seed.barrierHintExample?.trim() ||
+    "Я знаю, что… (напиши по-честному, даже если пока немного).";
+
   return {
-    id: buildTopicId(subjectId, grade, quarter, order),
+    id: buildTopicId(subjectId, grade, quarter, order, slugSegment || null),
     subjectId,
     grade,
     quarter,
@@ -40,6 +62,13 @@ function expandSeed(
     description: seed.description,
     icon: seed.icon,
     order,
+    lessonSlug,
+    programBasis: seed.programBasis?.trim() || "",
+    curriculumModule: seed.curriculumModule?.trim() || undefined,
+    learningGoal,
+    prerequisites,
+    barrierHintExample,
+    contentStatus: seed.contentStatus ?? "ready",
   };
 }
 

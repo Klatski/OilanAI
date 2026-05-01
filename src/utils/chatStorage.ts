@@ -15,6 +15,12 @@ import type { ChatMessage } from "../types";
  * later, even after the topic was completed.
  */
 
+export interface OfflineBranchSnapshot {
+  nodeId: string;
+  turns: number;
+  atTerminal: boolean;
+}
+
 export interface ChatSession {
   userId: string;
   topicId: string;
@@ -41,6 +47,12 @@ export interface ChatSession {
 
   /** Last known AI source for the sidebar badge. */
   aiSource: AISource | null;
+
+  /** Если true — диалог идёт по оффлайн-дереву (без LLM). */
+  offlineLocked?: boolean;
+
+  /** Указатель текущего узла дерева для кнопок и свободного ввода. */
+  offlineBranch?: OfflineBranchSnapshot | null;
 
   /** Unix ms of last update. */
   updatedAt: number;

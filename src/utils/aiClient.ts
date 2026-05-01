@@ -16,7 +16,7 @@ import type { ChatMessage, ReflectionFeedbackBlocks } from "../types";
  * The chat UI should *never* crash — worst case, we use the local heuristic.
  */
 
-export type AISource = "gemini-proxy" | "gemini-direct" | "local";
+export type AISource = "gemini-proxy" | "gemini-direct" | "local" | "offline";
 
 export interface AIReplyResult {
   text: string;
@@ -35,6 +35,10 @@ export interface SocraticRequestParams {
   grade?: number;
   /** Academic quarter (1..4). */
   quarter?: number;
+  programBasis?: string;
+  curriculumModule?: string;
+  learningGoal?: string;
+  prerequisites?: string;
 }
 
 const GEMINI_OPENAI_ENDPOINT =
@@ -120,6 +124,10 @@ async function tryProxy(
         knowledge: params.knowledge,
         grade: params.grade,
         quarter: params.quarter,
+        programBasis: params.programBasis,
+        curriculumModule: params.curriculumModule,
+        learningGoal: params.learningGoal,
+        prerequisites: params.prerequisites,
         messages: toOpenAIMessages(params.history),
       }),
     });
@@ -194,6 +202,10 @@ async function tryGeminiDirect(
     knowledge: params.knowledge,
     grade: params.grade,
     quarter: params.quarter,
+    programBasis: params.programBasis,
+    curriculumModule: params.curriculumModule,
+    learningGoal: params.learningGoal,
+    prerequisites: params.prerequisites,
   });
 
   // Walk through the fallback chain.
@@ -339,6 +351,8 @@ export function getSourceLabel(source: AISource): string {
       return "Gemini (прямой)";
     case "local":
       return "локальная симуляция";
+    case "offline":
+      return "оффлайн-сценарий (без ИИ)";
   }
 }
 

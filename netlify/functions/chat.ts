@@ -15,6 +15,10 @@ interface ClientPayload {
   grade?: number;
   /** Academic quarter (1..4). */
   quarter?: number;
+  programBasis?: string;
+  curriculumModule?: string;
+  learningGoal?: string;
+  prerequisites?: string;
   messages?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
@@ -92,6 +96,8 @@ const STAGE_INSTRUCTIONS: Record<ChatStage, string> = {
 
 Теперь правила меняются: ты МОЖЕШЬ и ДОЛЖЕН дать полный ясный ответ. Но фидбэк должен быть СТРУКТУРИРОВАН в три отдельных блока с маркерами. Это критично — UI парсит маркеры и рендерит блоки как отдельные карточки.
 
+В блоке MUST_KNOW опирайся на «ожидаемый результат по теме», если он передан в контексте урока ниже — формулируй факты в духе школьной программы РК для заявленного класса.
+
 ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА (используй ровно эти теги, без изменений):
 
 [VALIDATION]
@@ -152,6 +158,23 @@ function gradeLine(grade: number | undefined, quarter: number | undefined): stri
   return `\n- Класс ученика: ${parts.join(", ")}`;
 }
 
+function curriculumAttachments(p: ClientPayload): string {
+  const lines: string[] = [];
+  const pb = (p.programBasis ?? "").trim();
+  const cm = (p.curriculumModule ?? "").trim();
+  const lg = (p.learningGoal ?? "").trim();
+  const pr = (p.prerequisites ?? "").trim();
+  if (pb) lines.push(`- Базис / программа: ${pb}`);
+  if (cm) lines.push(`- Раздел программы: ${cm}`);
+  if (lg) {
+    lines.push(
+      `- Ожидаемый результат по теме (ориентир для MUST_KNOW и формулировок): ${lg}`
+    );
+  }
+  if (pr) lines.push(`- Что ученику полезно уже помнить: ${pr}`);
+  return lines.length ? `\n${lines.join("\n")}` : "";
+}
+
 function buildSystemPrompt(p: ClientPayload): string {
   const stage: ChatStage = (p.stage as ChatStage) ?? "explore";
   const subject = p.subject ?? "учебный предмет";
@@ -165,7 +188,7 @@ ${STAGE_INSTRUCTIONS[stage]}
 
 КОНТЕКСТ УРОКА:
 - Предмет: ${subject}
-- Тема: ${lesson} (${topic})${gradeLine(p.grade, p.quarter)}
+- Тема: ${lesson} (${topic})${gradeLine(p.grade, p.quarter)}${curriculumAttachments(p)}
 - Барьер знаний ученика: «${knowledge}»
 `;
 }

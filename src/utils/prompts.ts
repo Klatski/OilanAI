@@ -20,13 +20,41 @@ export interface PromptContext {
   subject: string;
   /** Topic title shown to the student, e.g. "Линейные уравнения". */
   lesson: string;
-  /** Sub-category inside the subject — kept for backwards compatibility. */
+  /** Structural label: class, quarter, curriculum module. */
   topic: string;
   knowledge: string;
   /** School parallel the student is in (5..11), used to adjust depth. */
   grade?: number;
   /** Academic quarter (1..4). */
   quarter?: number;
+  /** ГОСО РК / НИШ / др. */
+  programBasis?: string;
+  curriculumModule?: string;
+  /** Ожидаемый результат по типовой программе. */
+  learningGoal?: string;
+  prerequisites?: string;
+}
+
+function curriculumContextLines(ctx: PromptContext): string {
+  const lines: string[] = [];
+  if (ctx.programBasis?.trim()) {
+    lines.push(`- Базис / программа: ${ctx.programBasis.trim()}`);
+  }
+  if (ctx.curriculumModule?.trim()) {
+    lines.push(`- Раздел программы: ${ctx.curriculumModule.trim()}`);
+  }
+  if (ctx.learningGoal?.trim()) {
+    lines.push(
+      `- Ожидаемый результат по теме (ориентир для MUST_KNOW и формулировок): ${ctx.learningGoal.trim()}`
+    );
+  }
+  if (ctx.prerequisites?.trim()) {
+    lines.push(
+      `- Что ученику полезно уже помнить: ${ctx.prerequisites.trim()}`
+    );
+  }
+  if (lines.length === 0) return "";
+  return `\n${lines.join("\n")}`;
 }
 
 const COMMON_HEADER = `Ты — «Дух Знаний», ИИ-наставник в образовательной платформе OilanAI (каз. «ойлан» — думай).
@@ -99,6 +127,8 @@ const STAGE_INSTRUCTIONS: Record<ChatStage, string> = {
 
 Теперь правила меняются: ты МОЖЕШЬ и ДОЛЖЕН дать полный ясный ответ. Но фидбэк должен быть СТРУКТУРИРОВАН в три отдельных блока с маркерами. Это критично — UI парсит маркеры и рендерит блоки как отдельные карточки.
 
+В блоке MUST_KNOW опирайся на «ожидаемый результат по теме», если он передан в контексте урока ниже — формулируй факты в духе школьной программы РК для заявленного класса.
+
 ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОТВЕТА (используй ровно эти теги, без изменений):
 
 [VALIDATION]
@@ -170,7 +200,7 @@ ${STAGE_INSTRUCTIONS[stage]}
 
 КОНТЕКСТ УРОКА:
 - Предмет: ${ctx.subject}
-- Тема: ${ctx.lesson} (${ctx.topic})${gradeLine(ctx.grade, ctx.quarter)}
+- Тема: ${ctx.lesson} (${ctx.topic})${gradeLine(ctx.grade, ctx.quarter)}${curriculumContextLines(ctx)}
 - Барьер знаний ученика: «${knowledge}»
 `;
 }

@@ -1,4 +1,5 @@
-import type { Grade, Quarter } from "../types";
+import type { Grade, Quarter, TopicContentStatus } from "../types";
+import { MATH_GRADE_7_KZ } from "./programs/kzGosoMath7";
 
 /**
  * The school curriculum for OilanAI demo.
@@ -14,13 +15,22 @@ import type { Grade, Quarter } from "../types";
  * treatment.
  *
  * `topics.ts` walks this table and produces a flat `Topic[]` with stable ids
- * shaped like `math.g7.q2.t3`.
+ * shaped like `math.g7.q2.t3` или `math.g7.q2.lesson-slug`, если задан `lessonSlug`.
  */
 
 export interface TopicSeed {
   title: string;
   description: string;
   icon: string;
+  /** Сегмент стабильного id: math.g7.q1.power-natural-exponent */
+  lessonSlug?: string;
+  /** Подпись базы программы (ГОСО РК / НИШ / …). */
+  programBasis?: string;
+  curriculumModule?: string;
+  learningGoal?: string;
+  prerequisites?: string;
+  barrierHintExample?: string;
+  contentStatus?: TopicContentStatus;
 }
 
 type QuarterMap = Partial<Record<Quarter, TopicSeed[]>>;
@@ -59,30 +69,10 @@ const MATH: GradeMap = {
     ],
   },
   7: {
-    1: [
-      { title: "Степень с натуральным показателем", description: "Свойства степеней и операции с ними.", icon: "⚡" },
-      { title: "Одночлены", description: "Стандартный вид и действия с одночленами.", icon: "🔣" },
-      { title: "Многочлены", description: "Сумма, разность, умножение многочленов.", icon: "🧩" },
-      { title: "Формулы сокращённого умножения", description: "(a±b)², (a−b)(a+b) и их применение.", icon: "✨" },
-    ],
-    2: [
-      { title: "Линейные уравнения", description: "Корень уравнения и его смысл. ax + b = 0.", icon: "📐" },
-      { title: "Линейные неравенства", description: "Знаки <, >, ≤, ≥ и числовая прямая.", icon: "↔️" },
-      { title: "Системы линейных уравнений", description: "Способ подстановки и сложения.", icon: "🧮" },
-      { title: "Текстовые задачи", description: "Перевод задачи в уравнение.", icon: "📖" },
-    ],
-    3: [
-      { title: "Линейная функция", description: "y = kx + b. График и смысл k и b.", icon: "📈" },
-      { title: "Прямая пропорциональность", description: "Когда величины растут согласованно.", icon: "🔗" },
-      { title: "Геометрия: углы", description: "Смежные, вертикальные углы, биссектриса.", icon: "📐" },
-      { title: "Треугольники", description: "Виды треугольников и их свойства.", icon: "🔺" },
-    ],
-    4: [
-      { title: "Признаки равенства треугольников", description: "Три классических признака.", icon: "🟰" },
-      { title: "Параллельные прямые", description: "Признаки и свойства параллельности.", icon: "║" },
-      { title: "Сумма углов треугольника", description: "Почему всегда 180°.", icon: "📐" },
-      { title: "Внешние углы", description: "Свойства внешних углов треугольника.", icon: "🔺" },
-    ],
+    1: MATH_GRADE_7_KZ[1] ?? [],
+    2: MATH_GRADE_7_KZ[2] ?? [],
+    3: MATH_GRADE_7_KZ[3] ?? [],
+    4: MATH_GRADE_7_KZ[4] ?? [],
   },
   11: {
     1: [

@@ -330,7 +330,11 @@ export function StudentPage() {
                 key={topic.id}
                 className={`quest-node ${done ? "done" : ""} unlocked ${
                   isPrimary ? "primary" : ""
-                } ${isForeign ? "foreign" : ""}`}
+                } ${isForeign ? "foreign" : ""}${
+                  topic.contentStatus === "in_development"
+                    ? " quest-node--has-wip"
+                    : ""
+                }`}
                 onClick={() => openTopic(topic)}
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -352,15 +356,35 @@ export function StudentPage() {
                 </div>
                 <div className="quest-node__body">
                   <div className="quest-node__num">
-                    Тема {topic.order}
+                    <span className="quest-node__idx">Тема {topic.order}</span>
                     <span className="quest-node__grade-pill">
                       {topic.grade} кл · {topic.quarter} четв
                     </span>
                   </div>
-                  <div className="quest-node__title">{topic.title}</div>
-                  <div className="quest-node__topic">{topic.description}</div>
+                  {topic.curriculumModule ? (
+                    <div
+                      className="quest-node__module"
+                      title={topic.curriculumModule}
+                    >
+                      {topic.curriculumModule}
+                    </div>
+                  ) : null}
+                  <div className="quest-node__title" title={topic.title}>
+                    {topic.title}
+                  </div>
+                  <div
+                    className="quest-node__topic"
+                    title={[topic.description, topic.learningGoal]
+                      .filter(Boolean)
+                      .join("\n\n")}
+                  >
+                    {topic.description}
+                  </div>
                 </div>
                 {done && <div className="quest-node__badge">Пройдено</div>}
+                {topic.contentStatus === "in_development" && (
+                  <div className="quest-node__wip-tag">в разработке</div>
+                )}
                 {isForeign && !done && (
                   <div className="quest-node__foreign-tag">не твой класс</div>
                 )}

@@ -20,7 +20,7 @@ export interface PromptScore {
   clarity: number; // 1-5
   depth: number; // 1-5
   hint: string; // ≤ ~100 symbols, RU
-  source: "gemini-proxy" | "gemini-direct" | "local";
+  source: "gemini-proxy" | "gemini-direct" | "local" | "offline";
 }
 
 const VITE_GEMINI_KEY =
@@ -37,6 +37,17 @@ interface EvalContext {
   subject: string;
   lesson: string;
   topic: string;
+  programBasis?: string;
+  learningGoal?: string;
+}
+
+function evalContextExtras(ctx: EvalContext): string {
+  const pb = ctx.programBasis?.trim();
+  const lg = ctx.learningGoal?.trim();
+  const bits: string[] = [];
+  if (pb) bits.push(`Программа: ${pb}`);
+  if (lg) bits.push(`Ожидаемый результат: ${lg}`);
+  return bits.length ? ` Дополнительно: ${bits.join(" ")}` : "";
 }
 
 function fetchWithTimeout(
@@ -108,6 +119,8 @@ async function tryProxy(
           subject: ctx.subject,
           lesson: ctx.lesson,
           topic: ctx.topic,
+          programBasis: ctx.programBasis,
+          learningGoal: ctx.learningGoal,
           messages: [{ role: "user", content: message }],
         }),
       },
@@ -148,7 +161,7 @@ async function tryGeminiDirect(
 ): Promise<Omit<PromptScore, "source"> | null> {
   if (!VITE_GEMINI_KEY) return null;
   try {
-    const userPrompt = `Контекст урока: предмет "${ctx.subject}", тема "${ctx.lesson}" (${ctx.topic}).
+    const userPrompt = `Контекст урока: предмет "${ctx.subject}", тема "${ctx.lesson}" (${ctx.topic}).${evalContextExtras(ctx)}
 Сообщение ученика для оценки:
 «${message}»`;
 
@@ -234,13 +247,20 @@ function localHeuristic(message: string): Omit<PromptScore, "source"> {
  */
 export async function evaluatePrompt(
   message: string,
-  ctx: EvalContext
+  ctx: EvalContext,
+  opts?: { offlineOnly?: boolean }
 ): Promise<PromptScore> {
   const trimmed = message.trim();
   if (!trimmed) {
-    return { ...localHeuristic(""), source: "local" };
+    return {
+      ...localHeuristic(""),
+      source: opts?.offlineOnly ? "offline" : "local",
+    };
   }
 
+  if (opts?.offlineOnly) {
+    return { ...localHeuristic(trimmed), source: "offline" };
+  }
   const proxy = await tryProxy(trimmed, ctx);
   if (proxy) return { ...proxy, source: "gemini-proxy" };
 

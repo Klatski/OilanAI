@@ -24,6 +24,7 @@ import {
   resetChatSession,
   saveChatSession,
   type ChatSession,
+  type OfflineBranchSnapshot,
 } from "../utils/chatStorage";
 import { touchStreak } from "../utils/streakStorage";
 import {
@@ -35,7 +36,41 @@ import type {
   ChatMessage,
   PromptQualityScore,
   ReflectionFeedbackBlocks,
+  Topic,
 } from "../types";
+import { getOfflineTree, hasOfflineTree } from "../data/offlineDialogues/registry";
+import {
+  readForceOffline,
+  shouldUseOfflineLesson,
+  writeForceOffline,
+} from "../utils/offlineMode";
+import {
+  getNode,
+  matchOfflineOption,
+  nodeIsTerminal,
+  renderOfflineTemplate,
+} from "../utils/offlineDialogueEngine";
+import type { OfflineTreeOption } from "../data/offlineDialogues/types";
+
+function topicStructuralLabel(t: Topic): string {
+  const bits = [`${t.grade} класс`, `${t.quarter} четверть`];
+  if (t.curriculumModule) bits.push(t.curriculumModule);
+  return bits.join(" · ");
+}
+
+function aiLessonParams(subjectName: string, lesson: Topic) {
+  return {
+    subject: subjectName,
+    lesson: lesson.title,
+    topic: topicStructuralLabel(lesson),
+    grade: lesson.grade,
+    quarter: lesson.quarter,
+    programBasis: lesson.programBasis.trim() || undefined,
+    curriculumModule: lesson.curriculumModule,
+    learningGoal: lesson.learningGoal,
+    prerequisites: lesson.prerequisites,
+  };
+}
 
 type Stage = "barrier" | "chat" | "reflection" | "done";
 
@@ -124,8 +159,36 @@ export function ChatPage() {
   const [completed, setCompleted] = useState(false);
   const [restoredBanner, setRestoredBanner] = useState(false);
 
+  const [netOnline, setNetOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine : true
+  );
+  const [forceOffline, setForceOffline] = useState(() => readForceOffline());
+  const [offlineLocked, setOfflineLocked] = useState(false);
+  const [offlineBranch, setOfflineBranch] =
+    useState<OfflineBranchSnapshot | null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const hydratedRef = useRef(false);
+
+  useEffect(() => {
+    const up = () => setNetOnline(true);
+    const down = () => setNetOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+
+  const offlineTree = useMemo(
+    () => (lesson ? getOfflineTree(lesson.id) : undefined),
+    [lesson?.id]
+  );
+
+  const wantsOfflineLesson = shouldUseOfflineLesson(netOnline, forceOffline);
+  const offlineBlockedNoScenario =
+    !!lesson && wantsOfflineLesson && !hasOfflineTree(lesson.id);
 
   // ---------------------------------------------------------------------------
   // Hydrate state from localStorage every time the user/topic changes.
@@ -144,6 +207,8 @@ export function ChatPage() {
       setXpGained(session.xpGained ?? 0);
       setCompleted(session.completed ?? false);
       setAiSource(session.aiSource ?? null);
+      setOfflineLocked(session.offlineLocked ?? false);
+      setOfflineBranch(session.offlineBranch ?? null);
       setStage("chat");
       setRestoredBanner(true);
       const t = setTimeout(() => setRestoredBanner(false), 3500);
@@ -158,6 +223,8 @@ export function ChatPage() {
     setReflection("");
     setXpGained(0);
     setAiSource(null);
+    setOfflineLocked(false);
+    setOfflineBranch(null);
     setCompleted(false);
     setRestoredBanner(false);
     hydratedRef.current = true;
@@ -181,6 +248,8 @@ export function ChatPage() {
       xpGained,
       completed,
       aiSource,
+      offlineLocked,
+      offlineBranch,
       updatedAt: Date.now(),
     };
     saveChatSession(next);
@@ -191,6 +260,8 @@ export function ChatPage() {
     xpGained,
     completed,
     aiSource,
+    offlineLocked,
+    offlineBranch,
     stage,
     lesson?.id,
     currentUser?.id,
@@ -210,25 +281,118 @@ export function ChatPage() {
 
   const lessonAlreadyCompleted = hasCompletedTopic(currentUser?.id, lesson.id);
 
+  const runOfflineAdvance = (userVisible: string, chosen: OfflineTreeOption) => {
+    if (!offlineTree || !offlineBranch || offlineBranch.atTerminal) return;
+
+    const userMsgId = crypto.randomUUID();
+    const userMsg: ChatMessage = {
+      id: userMsgId,
+      role: "user",
+      text: userVisible,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+
+    void evaluatePrompt(
+      userVisible,
+      {
+        subject: subject.name,
+        lesson: lesson.title,
+        topic: topicStructuralLabel(lesson),
+        programBasis: lesson.programBasis.trim() || undefined,
+        learningGoal: lesson.learningGoal,
+      },
+      { offlineOnly: true }
+    ).then((score) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === userMsgId
+            ? {
+                ...m,
+                promptQuality: {
+                  clarity: score.clarity,
+                  depth: score.depth,
+                  hint: score.hint,
+                  source: score.source as PromptQualityScore["source"],
+                },
+              }
+            : m
+        )
+      );
+    });
+
+    const nextNode = getNode(offlineTree, chosen.nextNodeId);
+    if (!nextNode) return;
+
+    const fn = currentUser?.name?.split(" ")[0] ?? "друг";
+    const aiText = renderOfflineTemplate(nextNode.aiText, {
+      firstName: fn,
+      knowledge,
+    });
+    const aiMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: "ai",
+      text: aiText,
+      timestamp: Date.now(),
+    };
+    setMessages((prev) => [...prev, aiMsg]);
+    setOfflineBranch((prev) => {
+      if (!prev || prev.atTerminal) return prev;
+      return {
+        nodeId: nextNode.id,
+        turns: prev.turns + 1,
+        atTerminal: nodeIsTerminal(nextNode),
+      };
+    });
+    setAiSource("offline");
+  };
+
   const handleBarrierSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (knowledge.trim().length < 10 || isThinking) return;
+    if (offlineBlockedNoScenario) return;
 
     setStage("chat");
     setIsThinking(true);
 
     const firstName = currentUser?.name?.split(" ")[0] ?? "друг";
-    const lessonContextLabel = `${lesson.grade} класс · ${lesson.quarter} четверть`;
-    const localIntro = `Привет, ${firstName}! Ты написал, что уже знаешь кое-что про «${subject.name}» — это отличная стартовая точка. Я — Дух Знаний, и готовых ответов от меня не жди. Моя задача — вести тебя вопросами, а не решать за тебя.\n\nИтак, по теме «${lesson.title}» (${lessonContextLabel}): что именно тебе кажется самым запутанным? С чего хочешь начать распутывать клубок?`;
+    const structLabel = topicStructuralLabel(lesson);
+    const localIntro = `Привет, ${firstName}! Ты написал, что уже знаешь кое-что про «${subject.name}» — это отличная стартовая точка. Я — Дух Знаний, и готовых ответов от меня не жди. Моя задача — вести тебя вопросами, а не решать за тебя.\n\nИтак, по теме «${lesson.title}» (${structLabel}): что именно тебе кажется самым запутанным? С чего хочешь начать распутывать клубок?`;
+
+    const startOfflineTree =
+      offlineTree && shouldUseOfflineLesson(netOnline, forceOffline);
+
+    if (startOfflineTree) {
+      setOfflineLocked(true);
+      setAiSource("offline");
+      const introRaw = offlineTree.nodes[offlineTree.startNodeId].aiText;
+      const introText = renderOfflineTemplate(introRaw, {
+        firstName,
+        knowledge,
+      });
+      const startNode = offlineTree.nodes[offlineTree.startNodeId];
+      setOfflineBranch({
+        nodeId: offlineTree.startNodeId,
+        turns: 0,
+        atTerminal: nodeIsTerminal(startNode),
+      });
+      const introMsg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        text: introText,
+        timestamp: Date.now(),
+        kind: "intro",
+      };
+      setMessages([introMsg]);
+      setIsThinking(false);
+      return;
+    }
 
     try {
       const intro = await askIntroMessage({
-        subject: subject.name,
-        lesson: lesson.title,
-        topic: lessonContextLabel,
+        ...aiLessonParams(subject.name, lesson),
         knowledge,
-        grade: lesson.grade,
-        quarter: lesson.quarter,
       });
       setAiSource(intro.source);
       const introMsg: ChatMessage = {
@@ -257,6 +421,20 @@ export function ChatPage() {
     const text = input.trim();
     if (!text || isThinking) return;
 
+    if (
+      offlineLocked &&
+      offlineBranch &&
+      offlineTree &&
+      !offlineBranch.atTerminal
+    ) {
+      const node = getNode(offlineTree, offlineBranch.nodeId);
+      if (!node?.options?.length) return;
+
+      const chosen = matchOfflineOption(node.options, text);
+      runOfflineAdvance(text, chosen);
+      return;
+    }
+
     const userMsgId = crypto.randomUUID();
     const userMsg: ChatMessage = {
       id: userMsgId,
@@ -274,7 +452,9 @@ export function ChatPage() {
     void evaluatePrompt(text, {
       subject: subject.name,
       lesson: lesson.title,
-      topic: `${lesson.grade} класс · ${lesson.quarter} четверть`,
+      topic: topicStructuralLabel(lesson),
+      programBasis: lesson.programBasis.trim() || undefined,
+      learningGoal: lesson.learningGoal,
     }).then((score) => {
       setMessages((prev) =>
         prev.map((m) =>
@@ -295,14 +475,10 @@ export function ChatPage() {
 
     try {
       const reply = await askSocraticReply({
-        subject: subject.name,
-        lesson: lesson.title,
-        topic: `${lesson.grade} класс · ${lesson.quarter} четверть`,
+        ...aiLessonParams(subject.name, lesson),
         knowledge,
         history: nextHistory,
         latestUserMessage: text,
-        grade: lesson.grade,
-        quarter: lesson.quarter,
       });
 
       setAiSource(reply.source);
@@ -324,6 +500,15 @@ export function ChatPage() {
     } finally {
       setIsThinking(false);
     }
+  };
+
+  const pickOfflineOption = (opt: OfflineTreeOption) => {
+    if (isThinking) return;
+    if (!offlineLocked || !offlineBranch || !offlineTree || offlineBranch.atTerminal)
+      return;
+    const node = getNode(offlineTree, offlineBranch.nodeId);
+    if (!node?.options?.some((o) => o.id === opt.id)) return;
+    runOfflineAdvance(opt.label, opt);
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -355,33 +540,50 @@ export function ChatPage() {
 
     let feedbackText: string;
     let feedbackBlocks: ReflectionFeedbackBlocks | undefined;
-    try {
-      const result = await askStructuredReflectionFeedback(
-        reflection,
-        messages,
-        {
-          subject: subject.name,
-          lesson: lesson.title,
-          topic: `${lesson.grade} класс · ${lesson.quarter} четверть`,
-          knowledge,
-          grade: lesson.grade,
-          quarter: lesson.quarter,
-        }
-      );
-      setAiSource(result.source);
-      feedbackText = result.text;
-      feedbackBlocks = result.blocks;
-    } catch {
+
+    if (offlineLocked && offlineTree) {
+      const blocks = offlineTree.reflectionOutcome;
+      feedbackBlocks = blocks;
       feedbackText =
-        "Отличная работа над рефлексией! Продолжай в том же духе — ты растёшь.";
+        "Оффлайн: итог по теме собран из заготовленных блоков (без генеративного ИИ).";
+      setAiSource("offline");
+    } else if (offlineLocked) {
       feedbackBlocks = {
         validation:
-          "Ты прошёл диалог до конца и сформулировал свою рефлексию — это шаг роста.",
+          "Ты завершил(а) оффлайн-сценарий и написал(а) рефлексию — это ценный шаг.",
         mustKnow:
-          "В этой теме главное — само мышление, ключевых формул-аксиом нет.",
+          "Итог по теме лучше уточнить с учителем: дерево диалога для этого урока не найдено в приложении.",
         struggles:
-          "Связь с ИИ-наставником сейчас прервалась, но твой прогресс сохранён.",
+          "Если видишь это сообщение, возможно, тема устарела или данные сессии не совпадают с контентом.",
       };
+      feedbackText =
+        "Оффлайн-режим без привязки к дереву темы — показан запасной статический итог.";
+      setAiSource("offline");
+    } else {
+      try {
+        const result = await askStructuredReflectionFeedback(
+          reflection,
+          messages,
+          {
+            ...aiLessonParams(subject.name, lesson),
+            knowledge,
+          }
+        );
+        setAiSource(result.source);
+        feedbackText = result.text;
+        feedbackBlocks = result.blocks;
+      } catch {
+        feedbackText =
+          "Отличная работа над рефлексией! Продолжай в том же духе — ты растёшь.";
+        feedbackBlocks = {
+          validation:
+            "Ты прошёл диалог до конца и сформулировал свою рефлексию — это шаг роста.",
+          mustKnow:
+            "В этой теме главное — само мышление, ключевых формул-аксиом нет.",
+          struggles:
+            "Связь с ИИ-наставником сейчас прервалась, но твой прогресс сохранён.",
+        };
+      }
     }
 
     const feedbackMsg: ChatMessage = {
@@ -437,6 +639,8 @@ export function ChatPage() {
     setXpGained(0);
     setCompleted(false);
     setAiSource(null);
+    setOfflineLocked(false);
+    setOfflineBranch(null);
     setRestoredBanner(false);
     // re-enable persistence on next tick
     setTimeout(() => {
@@ -445,7 +649,21 @@ export function ChatPage() {
   };
 
   const userMessagesCount = messages.filter((m) => m.role === "user").length;
-  const canReflect = userMessagesCount >= 3;
+  const offlineCanReflect =
+    !!offlineLocked &&
+    !!offlineBranch &&
+    (offlineBranch.atTerminal || offlineBranch.turns >= 5);
+  const canReflect = offlineLocked ? offlineCanReflect : userMessagesCount >= 3;
+
+  const offlineChoiceOptions =
+    offlineLocked &&
+    offlineBranch &&
+    !offlineBranch.atTerminal &&
+    offlineTree &&
+    stage === "chat"
+      ? getNode(offlineTree, offlineBranch.nodeId)?.options
+      : undefined;
+
   const isCompletedView = completed || lessonAlreadyCompleted;
 
   return (
@@ -468,9 +686,30 @@ export function ChatPage() {
           <div className="chat-side__icon">{lesson.icon}</div>
           <div className="chat-side__title">{lesson.title}</div>
           <div className="chat-side__topic" style={{ color: subject.accent }}>
-            {subject.name} · {lesson.grade} класс · {lesson.quarter} четверть
+            {subject.name} · {topicStructuralLabel(lesson)}
           </div>
-          <p className="chat-side__desc">{lesson.description}</p>
+          <p className="chat-side__desc chat-side__desc--clamp">
+            {lesson.description}
+          </p>
+          <details className="lesson-fold chat-side__lesson-fold">
+            <summary>Подробнее о теме</summary>
+            <div className="lesson-fold__inner">
+              {lesson.programBasis.trim() ? (
+                <section className="lesson-fold__section">
+                  <h4>Программа</h4>
+                  <p>{lesson.programBasis}</p>
+                </section>
+              ) : null}
+              <section className="lesson-fold__section">
+                <h4>Цель</h4>
+                <p>{lesson.learningGoal}</p>
+              </section>
+              <section className="lesson-fold__section">
+                <h4>Вспомнить</h4>
+                <p>{lesson.prerequisites}</p>
+              </section>
+            </div>
+          </details>
 
           {isCompletedView && (
             <div
@@ -485,6 +724,38 @@ export function ChatPage() {
         <div className="chat-side__block">
           <div className="chat-side__block-title">Движок ИИ</div>
           <AiSourceBadge source={aiSource} />
+        </div>
+
+        <div className="chat-side__block">
+          <div className="chat-side__block-title">Оффлайн</div>
+          <label className="chat-side__offline-toggle">
+            <input
+              type="checkbox"
+              checked={forceOffline}
+              onChange={(e) => {
+                const v = e.target.checked;
+                setForceOffline(v);
+                writeForceOffline(v);
+              }}
+            />
+            <span>Только оффлайн-сценарий</span>
+          </label>
+          <div
+            className={`chat-side__net chat-side__net--${
+              netOnline ? "on" : "off"
+            }`}
+          >
+            Сеть: {netOnline ? "онлайн" : "оффлайн"}
+          </div>
+          {offlineTree ? (
+            <p className="chat-side__offline-hint">
+              Для этой темы есть оффлайн-сценарий (в бандле приложения).
+            </p>
+          ) : (
+            <p className="chat-side__offline-hint chat-side__offline-hint--warn">
+              Оффлайн-сценарий для этой темы не подключён.
+            </p>
+          )}
         </div>
 
         <div className="chat-side__block">
@@ -574,20 +845,64 @@ export function ChatPage() {
                 className="barrier__orb"
                 style={{ background: subject.gradient }}
               />
+              {lesson.contentStatus === "in_development" && (
+                <div className="barrier__status-banner barrier__status-banner--wip">
+                  Тема в статусе «в разработке» — можно проходить, формулировки
+                  уточним с методистом.
+                </div>
+              )}
+              {wantsOfflineLesson && offlineTree ? (
+                <div className="barrier__status-banner barrier__status-banner--offline-info">
+                  Офлайн: сценарий урока — без живого ИИ и без школьных серверов,
+                  только заготовленный диалог.
+                </div>
+              ) : null}
+              {offlineBlockedNoScenario ? (
+                <div className="barrier__status-banner barrier__status-banner--offline-block">
+                  Для этой темы нет оффлайн-сценария. Включите интернет или
+                  выберите тему из топ-списка математики 7 класса с деревом
+                  диалога.
+                </div>
+              ) : null}
               <h2 className="barrier__title">
                 Прежде чем заговорить с ИИ —<br />
                 <span className="accent">что ты уже знаешь?</span>
               </h2>
-              <p className="barrier__sub">
-                Предмет: <b>{subject.name}</b> · Тема:{" "}
-                <b>{lesson.title}</b> ({lesson.grade} класс,{" "}
-                {lesson.quarter} четверть). Напиши своими словами всё, что
-                помнишь, даже если это совсем немного. Только после этого
-                ИИ активируется.
+              <p className="barrier__context">
+                {subject.name}
+                <span className="barrier__context-sep"> · </span>
+                {lesson.title}
               </p>
+              <p className="barrier__sub">
+                Запиши своими словами, что уже понимаешь по теме (от 10
+                символов) — затем активируется наставник.
+              </p>
+              <details className="lesson-fold barrier__lesson-fold">
+                <summary>Подсказки к теме</summary>
+                <div className="lesson-fold__inner">
+                  {lesson.programBasis.trim() ? (
+                    <section className="lesson-fold__section">
+                      <h4>Программа</h4>
+                      <p>{lesson.programBasis}</p>
+                    </section>
+                  ) : null}
+                  <section className="lesson-fold__section">
+                    <h4>Цель</h4>
+                    <p>{lesson.learningGoal}</p>
+                  </section>
+                  <section className="lesson-fold__section">
+                    <h4>Вспомнить</h4>
+                    <p>{lesson.prerequisites}</p>
+                  </section>
+                  <section className="lesson-fold__section lesson-fold__section--hint">
+                    <h4>Пример начала</h4>
+                    <p>{lesson.barrierHintExample}</p>
+                  </section>
+                </div>
+              </details>
               <textarea
                 className="barrier__textarea"
-                placeholder="Я знаю, что..."
+                placeholder="Я знаю, что…"
                 value={knowledge}
                 onChange={(e) => setKnowledge(e.target.value)}
                 rows={6}
@@ -601,9 +916,13 @@ export function ChatPage() {
                 <button
                   className="btn btn--primary"
                   type="submit"
-                  disabled={knowledge.trim().length < 10}
+                  disabled={
+                    knowledge.trim().length < 10 || offlineBlockedNoScenario
+                  }
                 >
-                  Активировать ИИ ✨
+                  {wantsOfflineLesson && offlineTree
+                    ? "Начать оффлайн-сценарий →"
+                    : "Активировать ИИ ✨"}
                 </button>
               </div>
             </motion.form>
@@ -647,6 +966,20 @@ export function ChatPage() {
                   <span className="chat-banner__text">
                     Восстановлена предыдущая сессия. Продолжай с того места, где
                     остановился.
+                  </span>
+                </motion.div>
+              )}
+
+              {offlineLocked && (
+                <motion.div
+                  className="chat-banner chat-banner--offline-lesson"
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <span className="chat-banner__icon">◇</span>
+                  <span className="chat-banner__text">
+                    <b>Офлайн: сценарий урока.</b> Ответы наставника заранее
+                    записаны; сеть и генеративный ИИ не используются.
                   </span>
                 </motion.div>
               )}
@@ -785,31 +1118,69 @@ export function ChatPage() {
                 )}
               </div>
 
-              {stage === "chat" && (
-                <form
-                  className="chat-input"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void sendMessage();
-                  }}
-                >
-                  <textarea
-                    className="chat-input__field"
-                    placeholder="Напиши свою мысль... (Enter — отправить, Shift+Enter — новая строка)"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKey}
-                    rows={2}
-                  />
-                  <button
-                    type="submit"
-                    className="btn btn--primary chat-input__send"
-                    disabled={!input.trim() || isThinking}
-                  >
-                    Отправить
-                  </button>
-                </form>
-              )}
+              {stage === "chat" &&
+                (!offlineLocked || !offlineBranch?.atTerminal) && (
+                  <>
+                    {offlineChoiceOptions && offlineChoiceOptions.length > 0 ? (
+                      <div className="offline-option-panel">
+                        <div className="offline-option-panel__title">
+                          Выбери ответ или напиши свой вариант в поле ниже
+                        </div>
+                        <div className="offline-option-panel__grid">
+                          {offlineChoiceOptions.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              className="btn btn--ghost offline-option-btn"
+                              disabled={isThinking}
+                              onClick={() => pickOfflineOption(opt)}
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                    <form
+                      className="chat-input"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void sendMessage();
+                      }}
+                    >
+                      <textarea
+                        className="chat-input__field"
+                        placeholder={
+                          offlineLocked
+                            ? "Свой ответ… Ключевые слова помогут подобрать ветку (или выбери кнопку)."
+                            : "Напиши свою мысль... (Enter — отправить, Shift+Enter — новая строка)"
+                        }
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKey}
+                        rows={2}
+                      />
+                      <button
+                        type="submit"
+                        className="btn btn--primary chat-input__send"
+                        disabled={!input.trim() || isThinking}
+                      >
+                        Отправить
+                      </button>
+                    </form>
+                  </>
+                )}
+
+              {stage === "chat" &&
+              offlineLocked &&
+              offlineBranch?.atTerminal ? (
+                <div className="offline-terminal-hint">
+                  <p>
+                    Сценарий диалога завершён. Нажми в боковой панели{" "}
+                    <b>«Перейти к рефлексии»</b>.
+                  </p>
+                </div>
+              ) : null}
             </motion.div>
           )}
         </AnimatePresence>
@@ -821,6 +1192,14 @@ export function ChatPage() {
 function AiSourceBadge({ source }: { source: AISource | null }) {
   if (!source) {
     return <div className="ai-badge ai-badge--pending">ожидаем первого ответа…</div>;
+  }
+  if (source === "offline") {
+    return (
+      <div className="ai-badge ai-badge--offline">
+        <span className="ai-badge__dot">◇</span>
+        {getSourceLabel(source)}
+      </div>
+    );
   }
   const cls =
     source === "local"

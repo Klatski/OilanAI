@@ -41,11 +41,14 @@ export interface SchoolClass {
   motto?: string;
 }
 
+/** Whether the scenario is fully authored or awaiting content. */
+export type TopicContentStatus = "ready" | "in_development";
+
 /**
  * A topic — the new "atomic learning unit", bound to a (subject, grade, quarter).
  * Replaces the old flat per-subject `Lesson`.
  *
- * Stable string id, e.g. "math.7.q2.linear-equations", is used as:
+ * Stable string id, e.g. "math.g7.q2.linear-equations", is used as:
  *   - URL parameter,
  *   - chatStorage key,
  *   - progress key (completedTopics).
@@ -60,6 +63,19 @@ export interface Topic {
   icon: string;
   /** Order inside (subject, grade, quarter) — 1-based. */
   order: number;
+  /** Human-readable slug segment (without subject/grade/quarter prefix). */
+  lessonSlug: string;
+  /** Гос / НИШ / др. — что показываем ученику и передаём в промпт. */
+  programBasis: string;
+  /** Крупный модуль типовой программы: алгебра, геометрия… */
+  curriculumModule?: string;
+  /** Ожидаемый результат: что ученик должен уметь после темы. */
+  learningGoal: string;
+  /** Что освежить до разговора с наставником. */
+  prerequisites: string;
+  /** Пример начала барьера «Я знаю, что…». */
+  barrierHintExample: string;
+  contentStatus: TopicContentStatus;
 }
 
 export interface Subject {
@@ -106,7 +122,7 @@ export interface PromptQualityScore {
   /** Short Russian hint (≤ ~100 chars) on how to improve the prompt. */
   hint: string;
   /** Where the score came from. */
-  source: "gemini-proxy" | "gemini-direct" | "local";
+  source: "gemini-proxy" | "gemini-direct" | "local" | "offline";
 }
 
 /** Three-block structured final feedback for the reflection stage. */

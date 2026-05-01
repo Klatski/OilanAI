@@ -1,5 +1,5 @@
 import type { Grade, Quarter, StudentProgress } from "../types";
-import { buildTopicId } from "./topics";
+import { buildTopicId, getTopicsBySubjectGradeQuarter } from "./topics";
 
 /**
  * Pre-seeded student progress for the demo.
@@ -18,6 +18,19 @@ function ids(
   return orders.map((o) => buildTopicId(subjectId, grade, quarter, o));
 }
 
+/** Topics where ids use `lessonSlug` (напр. математика 7 кл.) — через фактический список тем. */
+function idsByQuarterOrder(
+  subjectId: string,
+  grade: Grade,
+  quarter: Quarter,
+  orders: number[]
+): string[] {
+  const list = getTopicsBySubjectGradeQuarter(subjectId, grade, quarter);
+  return orders
+    .map((o) => list.find((t) => t.order === o)?.id)
+    .filter((id): id is string => !!id);
+}
+
 export const MOCK_PROGRESS: StudentProgress[] = [
   {
     userId: "student_01",
@@ -27,8 +40,8 @@ export const MOCK_PROGRESS: StudentProgress[] = [
     xp: 870,
     level: 7,
     completedTopics: [
-      ...ids("math", 7, 1, [1, 2, 3, 4]),
-      ...ids("math", 7, 2, [1, 2]),
+      ...idsByQuarterOrder("math", 7, 1, [1, 2, 3, 4]),
+      ...idsByQuarterOrder("math", 7, 2, [1, 2]),
       ...ids("physics", 7, 1, [1, 2, 3]),
       ...ids("biology", 7, 1, [1, 2]),
     ],
@@ -81,7 +94,7 @@ export const MOCK_PROGRESS: StudentProgress[] = [
     xp: 650,
     level: 5,
     completedTopics: [
-      ...ids("math", 7, 1, [1, 2, 3]),
+      ...idsByQuarterOrder("math", 7, 1, [1, 2, 3]),
       ...ids("physics", 7, 1, [1, 2]),
       ...ids("biology", 7, 1, [1, 2, 3]),
       ...ids("english", 7, 1, [1, 2]),
