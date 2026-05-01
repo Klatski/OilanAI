@@ -5,7 +5,7 @@ import {
 } from "./socraticAI";
 import { buildSystemPrompt, type ChatStage } from "./prompts";
 import { sanitizeMath } from "./sanitizeMath";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, ReflectionFeedbackBlocks } from "../types";
 
 /**
  * Unified AI client with graceful fallback:
@@ -78,6 +78,8 @@ function maxTokensForStage(stage: ChatStage): number {
       return 2500;
     case "start":
       return 1500;
+    case "prompt-eval":
+      return 220;
     case "explore":
     default:
       return 1200;
@@ -330,4 +332,66 @@ export function getSourceLabel(source: AISource): string {
     case "local":
       return "локальная симуляция";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Structured reflection feedback parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Pull the contents of `[TAG]…[/TAG]` out of an AI response. Tags can repeat
+ * if the model is confused — we just take the first match.
+ */
+function extractTag(text: string, tag: string): string | null {
+  const re = new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, "i");
+  const m = text.match(re);
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * Try to parse the AI's reply into the three-block structure expected at the
+ * reflection stage. If the model didn't follow the format (e.g. local
+ * fallback), we fall back to a sensible best-effort split so the UI still
+ * shows three cards instead of one giant blob.
+ */
+export function parseReflectionBlocks(
+  text: string
+): ReflectionFeedbackBlocks {
+  const validation = extractTag(text, "VALIDATION");
+  const mustKnow = extractTag(text, "MUST_KNOW");
+  const struggles = extractTag(text, "STRUGGLES");
+
+  if (validation && mustKnow && struggles) {
+    return { validation, mustKnow, struggles };
+  }
+
+  // Fallback: model ignored the format — synthesise three blocks from the raw
+  // text so the user still gets a structured-looking answer.
+  const fallbackText = text.trim();
+  return {
+    validation:
+      validation ??
+      "В этой сессии ты прошёл диалог до конца — это уже шаг роста. Точные правильные мысли см. ниже.",
+    mustKnow:
+      mustKnow ??
+      "В этой теме главное — само мышление, ключевых формул-аксиом нет.",
+    struggles: struggles ?? fallbackText,
+  };
+}
+
+export interface AIReflectionResult {
+  text: string;
+  source: AISource;
+  blocks: ReflectionFeedbackBlocks;
+}
+
+/** Same as askReflectionFeedback but also returns parsed three-block blocks. */
+export async function askStructuredReflectionFeedback(
+  reflection: string,
+  dialogueHistory: ChatMessage[],
+  params: Omit<SocraticRequestParams, "stage" | "history" | "latestUserMessage">
+): Promise<AIReflectionResult> {
+  const result = await askReflectionFeedback(reflection, dialogueHistory, params);
+  const blocks = parseReflectionBlocks(result.text);
+  return { ...result, blocks };
 }

@@ -13,8 +13,8 @@ import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
 import {
   askIntroMessage,
-  askReflectionFeedback,
   askSocraticReply,
+  askStructuredReflectionFeedback,
   getSourceLabel,
   type AISource,
 } from "../utils/aiClient";
@@ -25,9 +25,72 @@ import {
   type ChatSession,
 } from "../utils/chatStorage";
 import { touchStreak } from "../utils/streakStorage";
-import type { ChatMessage } from "../types";
+import {
+  evaluatePrompt,
+  tierFromScore,
+  type PromptTier,
+} from "../utils/promptEvaluator";
+import type {
+  ChatMessage,
+  PromptQualityScore,
+  ReflectionFeedbackBlocks,
+} from "../types";
 
 type Stage = "barrier" | "chat" | "reflection" | "done";
+
+// ---------------------------------------------------------------------------
+// Adaptive XP calculation
+// ---------------------------------------------------------------------------
+// XP is awarded once per lesson on first completion. The student gets MORE
+// XP when the session shows real growth:
+//   - many on-topic user messages (engagement)
+//   - reflection that's noticeably longer / richer than the initial barrier
+//     (growth from "what I knew" → "what I now understand")
+//   - high average prompt-quality across the dialogue (good thinking, not
+//     "give me the answer")
+//
+// The numbers are tuned so a minimum-effort run (3 short messages, lazy
+// reflection, weak prompts) gets ~40 XP, while a strong session lands
+// ~120-140 XP. Cap is 150.
+// ---------------------------------------------------------------------------
+function computeAdaptiveXp(args: {
+  knowledge: string;
+  reflection: string;
+  messages: ChatMessage[];
+}): number {
+  const BASE = 40;
+
+  const userMessages = args.messages.filter((m) => m.role === "user");
+  const userMsgCount = userMessages.length;
+  const messageBonus = Math.min(30, userMsgCount * 4);
+
+  const knowledgeLen = args.knowledge.trim().length;
+  const reflectionLen = args.reflection.trim().length;
+  // Growth ratio rewards going beyond the starting knowledge — anchored at 1.0
+  // when reflection matches starting length, capped at 2.5x.
+  const growthRatio = Math.max(
+    0.5,
+    Math.min(2.5, reflectionLen / Math.max(40, knowledgeLen))
+  );
+  const growthBonus = Math.round((growthRatio - 1) * 28);
+
+  const scoredMessages = userMessages.filter((m) => m.promptQuality);
+  let qualityBonus = 0;
+  if (scoredMessages.length > 0) {
+    const avg =
+      scoredMessages.reduce(
+        (sum, m) =>
+          sum +
+          ((m.promptQuality?.clarity ?? 3) + (m.promptQuality?.depth ?? 3)) / 2,
+        0
+      ) / scoredMessages.length;
+    // avg is 1..5. Map to -10..+30:
+    qualityBonus = Math.round((avg - 2.5) * 12);
+  }
+
+  const total = BASE + messageBonus + growthBonus + qualityBonus;
+  return Math.max(20, Math.min(150, total));
+}
 
 export function ChatPage() {
   const { currentUser } = useAuth();
@@ -190,8 +253,9 @@ export function ChatPage() {
     const text = input.trim();
     if (!text || isThinking) return;
 
+    const userMsgId = crypto.randomUUID();
     const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: userMsgId,
       role: "user",
       text,
       timestamp: Date.now(),
@@ -200,6 +264,30 @@ export function ChatPage() {
     setMessages(nextHistory);
     setInput("");
     setIsThinking(true);
+
+    // Evaluate the prompt quality in parallel with the main reply.
+    // We never block the dialogue on this — the badge just fades in when ready.
+    void evaluatePrompt(text, {
+      subject: subject.name,
+      lesson: lesson.title,
+      topic: lesson.topic,
+    }).then((score) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === userMsgId
+            ? {
+                ...m,
+                promptQuality: {
+                  clarity: score.clarity,
+                  depth: score.depth,
+                  hint: score.hint,
+                  source: score.source,
+                },
+              }
+            : m
+        )
+      );
+    });
 
     try {
       const reply = await askSocraticReply({
@@ -244,7 +332,13 @@ export function ChatPage() {
     if (reflection.trim().length < 10) return;
 
     const wasAlreadyCompleted = lessonAlreadyCompleted || completed;
-    const xp = wasAlreadyCompleted ? 0 : 40 + Math.min(60, reflection.length);
+    const xp = wasAlreadyCompleted
+      ? 0
+      : computeAdaptiveXp({
+          knowledge,
+          reflection,
+          messages,
+        });
 
     // Show celebratory "done" view only on first-time completion.
     if (!wasAlreadyCompleted) {
@@ -254,18 +348,32 @@ export function ChatPage() {
     setIsThinking(true);
 
     let feedbackText: string;
+    let feedbackBlocks: ReflectionFeedbackBlocks | undefined;
     try {
-      const result = await askReflectionFeedback(reflection, messages, {
-        subject: subject.name,
-        lesson: lesson.title,
-        topic: lesson.topic,
-        knowledge,
-      });
+      const result = await askStructuredReflectionFeedback(
+        reflection,
+        messages,
+        {
+          subject: subject.name,
+          lesson: lesson.title,
+          topic: lesson.topic,
+          knowledge,
+        }
+      );
       setAiSource(result.source);
       feedbackText = result.text;
+      feedbackBlocks = result.blocks;
     } catch {
       feedbackText =
         "Отличная работа над рефлексией! Продолжай в том же духе — ты растёшь.";
+      feedbackBlocks = {
+        validation:
+          "Ты прошёл диалог до конца и сформулировал свою рефлексию — это шаг роста.",
+        mustKnow:
+          "В этой теме главное — само мышление, ключевых формул-аксиом нет.",
+        struggles:
+          "Связь с ИИ-наставником сейчас прервалась, но твой прогресс сохранён.",
+      };
     }
 
     const feedbackMsg: ChatMessage = {
@@ -274,6 +382,7 @@ export function ChatPage() {
       text: feedbackText,
       timestamp: Date.now(),
       kind: "reflection-feedback",
+      feedbackBlocks,
     };
     setMessages((prev) => [...prev, feedbackMsg]);
     setIsThinking(false);
@@ -533,46 +642,47 @@ export function ChatPage() {
               )}
 
               <div className="chat-window__messages" ref={scrollRef}>
-                {messages.map((m) => (
-                  <motion.div
-                    key={m.id}
-                    className={`msg msg--${m.role} ${
-                      m.kind === "reflection-feedback"
-                        ? "msg--reflection-feedback"
-                        : ""
-                    }`}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25 }}
-                  >
-                    {m.role === "ai" && (
-                      <div
-                        className="msg__orb"
-                        style={{ background: subject.gradient }}
+                {messages.map((m) => {
+                  if (m.kind === "reflection-feedback") {
+                    return (
+                      <ReflectionFeedbackBubble
+                        key={m.id}
+                        message={m}
+                        accent={subject.accent}
+                        gradient={subject.gradient}
                       />
-                    )}
-                    <div
-                      className="msg__bubble"
-                      style={
-                        m.role === "user"
-                          ? { background: subject.gradient }
-                          : m.kind === "reflection-feedback"
-                          ? { borderColor: `${subject.accent}80` }
-                          : undefined
-                      }
+                    );
+                  }
+                  return (
+                    <motion.div
+                      key={m.id}
+                      className={`msg msg--${m.role}`}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.25 }}
                     >
-                      {m.kind === "reflection-feedback" && (
+                      {m.role === "ai" && (
                         <div
-                          className="msg__bubble-tag"
-                          style={{ color: subject.accent }}
-                        >
-                          итоговый фидбэк
-                        </div>
+                          className="msg__orb"
+                          style={{ background: subject.gradient }}
+                        />
                       )}
-                      {m.text}
-                    </div>
-                  </motion.div>
-                ))}
+                      <div
+                        className="msg__bubble"
+                        style={
+                          m.role === "user"
+                            ? { background: subject.gradient }
+                            : undefined
+                        }
+                      >
+                        {m.text}
+                        {m.role === "user" && m.promptQuality && (
+                          <PromptQualityBadge score={m.promptQuality} />
+                        )}
+                      </div>
+                    </motion.div>
+                  );
+                })}
 
                 {isThinking && (
                   <div className="msg msg--ai">
@@ -712,5 +822,160 @@ function AiSourceBadge({ source }: { source: AISource | null }) {
       <span className="ai-badge__dot">{dot}</span>
       {getSourceLabel(source)}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Subtle prompt-quality indicator on user messages.
+// Shown as a small colored dot inside the bubble. Click reveals the hint.
+// Designed to NEVER push the bubble's main text around — sits in a small
+// footer row.
+// ---------------------------------------------------------------------------
+function PromptQualityBadge({ score }: { score: PromptQualityScore }) {
+  const [expanded, setExpanded] = useState(false);
+  const tier = tierFromScore(score);
+  const labels: Record<PromptTier, string> = {
+    weak: "Слабый промпт",
+    ok: "Можно лучше",
+    good: "Сильный промпт",
+  };
+
+  return (
+    <div className={`prompt-eval prompt-eval--${tier}`}>
+      <button
+        type="button"
+        className="prompt-eval__chip"
+        onClick={() => setExpanded((v) => !v)}
+        title="Оценка качества твоего промпта"
+        aria-expanded={expanded}
+      >
+        <span className="prompt-eval__dot" />
+        <span className="prompt-eval__label">{labels[tier]}</span>
+        <span className="prompt-eval__score">
+          {score.clarity}+{score.depth}/10
+        </span>
+      </button>
+      <AnimatePresence>
+        {expanded && score.hint && (
+          <motion.div
+            className="prompt-eval__hint"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="prompt-eval__hint-row">
+              <span>Ясность</span>
+              <span className="prompt-eval__hint-bar">
+                <span style={{ width: `${(score.clarity / 5) * 100}%` }} />
+              </span>
+              <span className="prompt-eval__hint-num">{score.clarity}/5</span>
+            </div>
+            <div className="prompt-eval__hint-row">
+              <span>Глубина</span>
+              <span className="prompt-eval__hint-bar">
+                <span style={{ width: `${(score.depth / 5) * 100}%` }} />
+              </span>
+              <span className="prompt-eval__hint-num">{score.depth}/5</span>
+            </div>
+            <div className="prompt-eval__hint-text">{score.hint}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Three-block structured final feedback bubble.
+// Renders the AI's reflection answer as three side-by-side cards instead of
+// one long blob:
+//   1. Что ты понял сам   (validation)
+//   2. Что нужно знать    (must-know facts the Socratic method can't derive)
+//   3. Где ты застрял     (struggles + clean explanations)
+// Falls back gracefully when the model didn't follow the format.
+// ---------------------------------------------------------------------------
+function ReflectionFeedbackBubble(props: {
+  message: ChatMessage;
+  accent: string;
+  gradient: string;
+}) {
+  const { message, accent, gradient } = props;
+  const blocks: ReflectionFeedbackBlocks =
+    message.feedbackBlocks ?? {
+      validation: "",
+      mustKnow: "",
+      struggles: message.text,
+    };
+
+  return (
+    <motion.div
+      className="msg msg--ai msg--reflection-feedback"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <div className="msg__orb" style={{ background: gradient }} />
+      <div className="feedback-cards">
+        <div
+          className="feedback-cards__tag"
+          style={{ color: accent, borderColor: `${accent}66` }}
+        >
+          итоговый фидбэк Духа Знаний
+        </div>
+
+        <div className="feedback-cards__grid">
+          <article
+            className="feedback-card feedback-card--validation"
+            style={{ borderColor: "rgba(0, 229, 160, 0.35)" }}
+          >
+            <div className="feedback-card__head">
+              <span className="feedback-card__icon">✓</span>
+              <span className="feedback-card__title">
+                Что ты понял сам
+              </span>
+            </div>
+            <div className="feedback-card__body">
+              {blocks.validation || "—"}
+            </div>
+          </article>
+
+          <article
+            className="feedback-card feedback-card--must-know"
+            style={{ borderColor: `${accent}55` }}
+          >
+            <div className="feedback-card__head">
+              <span
+                className="feedback-card__icon"
+                style={{ color: accent }}
+              >
+                📌
+              </span>
+              <span className="feedback-card__title">
+                Что нужно знать
+              </span>
+            </div>
+            <div className="feedback-card__body feedback-card__body--list">
+              {blocks.mustKnow || "—"}
+            </div>
+          </article>
+
+          <article
+            className="feedback-card feedback-card--struggles"
+            style={{ borderColor: "rgba(168, 85, 247, 0.4)" }}
+          >
+            <div className="feedback-card__head">
+              <span className="feedback-card__icon">🧩</span>
+              <span className="feedback-card__title">
+                Где ты застрял
+              </span>
+            </div>
+            <div className="feedback-card__body">
+              {blocks.struggles || "—"}
+            </div>
+          </article>
+        </div>
+      </div>
+    </motion.div>
   );
 }
