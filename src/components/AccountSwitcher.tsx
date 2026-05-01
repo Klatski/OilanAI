@@ -2,6 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
+import { getClassByStudentId, getClassesForTeacher } from "../data/mockClasses";
+
+function describeAccount(userId: string, role: "student" | "teacher"): string | null {
+  if (role === "student") {
+    const cls = getClassByStudentId(userId);
+    return cls ? `${cls.emoji} ${cls.name}` : null;
+  }
+  const led = getClassesForTeacher(userId);
+  if (led.length === 0) return null;
+  return `🏫 ${led.map((c) => c.name).join(", ")}`;
+}
 
 export function AccountSwitcher() {
   const { currentUser, availableAccounts, switchAccount, logout } = useAuth();
@@ -81,6 +92,14 @@ export function AccountSwitcher() {
                     <span className="account-switcher__item-text">
                       <span className="account-switcher__item-name">
                         {acc.name}
+                        {(() => {
+                          const where = describeAccount(acc.id, acc.role);
+                          return where ? (
+                            <span className="account-switcher__item-where">
+                              {where}
+                            </span>
+                          ) : null;
+                        })()}
                       </span>
                       <span className="account-switcher__item-meta">
                         {acc.role === "teacher" ? "Учитель" : "Ученик"} ·{" "}

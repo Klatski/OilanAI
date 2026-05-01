@@ -1,5 +1,13 @@
 export type Role = "student" | "teacher";
 
+/** School parallels we model in OilanAI demo (5-11). */
+export type Grade = 5 | 6 | 7 | 8 | 9 | 10 | 11;
+/** Academic quarters in the Kazakhstani / post-Soviet school system. */
+export type Quarter = 1 | 2 | 3 | 4;
+
+export const ALL_GRADES: Grade[] = [5, 6, 7, 8, 9, 10, 11];
+export const ALL_QUARTERS: Quarter[] = [1, 2, 3, 4];
+
 export interface User {
   id: string;
   role: Role;
@@ -7,27 +15,51 @@ export interface User {
   email: string;
   password: string;
   avatar: string;
+  /** Only for students — id of the SchoolClass they belong to. */
+  classId?: string;
+  /** Only for teachers — class ids they are homeroom teacher for. */
+  homeroomClassIds?: string[];
 }
 
-export interface StudentProgress {
-  userId: string;
+/** A school class like 7Б, 5А, 11В — bound to one parallel (grade). */
+export interface SchoolClass {
+  id: string;
+  /** Display name like "7Б". */
   name: string;
-  avatar: string;
-  xp: number;
-  level: number;
-  completedLessons: number[];
-  weakTopics: string[];
-  lastActive: string;
-  promptQuality: number;
-  thinkingIndependence: number;
+  grade: Grade;
+  /** Class letter — "А" | "Б" | "В" | … */
+  letter: string;
+  /** Homeroom teacher id (классный руководитель). */
+  homeroomTeacherId: string;
+  /** Students in this class. */
+  studentIds: string[];
+  /** Accent color for class badge / UI tint. */
+  accent: string;
+  /** Decorative emoji. */
+  emoji: string;
+  /** Short tagline shown in the teacher dashboard. */
+  motto?: string;
 }
 
-export interface Lesson {
-  id: number;
+/**
+ * A topic — the new "atomic learning unit", bound to a (subject, grade, quarter).
+ * Replaces the old flat per-subject `Lesson`.
+ *
+ * Stable string id, e.g. "math.7.q2.linear-equations", is used as:
+ *   - URL parameter,
+ *   - chatStorage key,
+ *   - progress key (completedTopics).
+ */
+export interface Topic {
+  id: string;
+  subjectId: string;
+  grade: Grade;
+  quarter: Quarter;
   title: string;
-  topic: string;
   description: string;
   icon: string;
+  /** Order inside (subject, grade, quarter) — 1-based. */
+  order: number;
 }
 
 export interface Subject {
@@ -38,16 +70,32 @@ export interface Subject {
   accent: string;
   gradient: string;
   description: string;
-  lessons: Lesson[];
 }
 
 export interface SubjectProgress {
-  completedLessons: number[];
+  /** Stable topic ids the student has completed in this subject. */
+  completedTopics: string[];
   xp: number;
 }
 
 export interface UserProgressMap {
   [subjectId: string]: SubjectProgress;
+}
+
+export interface StudentProgress {
+  userId: string;
+  name: string;
+  avatar: string;
+  /** Class id — used by the teacher dashboard to filter / group. */
+  classId: string;
+  xp: number;
+  level: number;
+  /** Pre-seeded completed topic ids (across all subjects). */
+  completedTopics: string[];
+  weakTopics: string[];
+  lastActive: string;
+  promptQuality: number;
+  thinkingIndependence: number;
 }
 
 export interface PromptQualityScore {
@@ -83,4 +131,14 @@ export interface ChatMessage {
   promptQuality?: PromptQualityScore;
   /** When kind === "reflection-feedback", parsed three-block structure. */
   feedbackBlocks?: ReflectionFeedbackBlocks;
+}
+
+/** Pretty Russian label for a quarter ("1 четверть" etc.). */
+export function quarterLabel(q: Quarter): string {
+  return `${q} четверть`;
+}
+
+/** Pretty Russian label for a grade ("7 класс"). */
+export function gradeLabel(g: Grade): string {
+  return `${g} класс`;
 }

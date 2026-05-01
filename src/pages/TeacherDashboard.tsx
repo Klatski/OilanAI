@@ -1,9 +1,16 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { MOCK_PROGRESS } from "../data/mockProgress";
 import { SUBJECTS } from "../data/mockSubjects";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
+import {
+  getClassById,
+  getClassesForTeacher,
+  MOCK_CLASSES,
+} from "../data/mockClasses";
+import { countTopicsBySubjectGrade } from "../data/topics";
+import type { Grade, SchoolClass } from "../types";
 
 function formatDate(iso: string) {
   try {
@@ -23,19 +30,79 @@ function daysSince(iso: string) {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
+interface SubjectStat {
+  subjectId: string;
+  subjectName: string;
+  icon: string;
+  accent: string;
+  completed: number;
+  total: number;
+  xp: number;
+}
+
+interface EnrichedStudent {
+  userId: string;
+  name: string;
+  avatar: string;
+  classId: string;
+  xp: number;
+  level: number;
+  weakTopics: string[];
+  lastActive: string;
+  promptQuality: number;
+  thinkingIndependence: number;
+  subjectsStats: SubjectStat[];
+  totalCompleted: number;
+  liveXp: number;
+}
+
 export function TeacherDashboard() {
   const { currentUser } = useAuth();
   const { getUserProgress } = useProgress();
 
-  const enrichedStudents = useMemo(() => {
-    return MOCK_PROGRESS.map((s) => {
+  const teacherClasses = useMemo(
+    () => getClassesForTeacher(currentUser?.id) ?? MOCK_CLASSES,
+    [currentUser?.id]
+  );
+
+  // "all" = aggregate across every class the teacher leads.
+  const [selectedClassId, setSelectedClassId] = useState<string>(
+    teacherClasses[0]?.id ?? "all"
+  );
+
+  const selectedClass: SchoolClass | undefined =
+    selectedClassId === "all" ? undefined : getClassById(selectedClassId);
+
+  const studentsInScope = useMemo(() => {
+    return MOCK_PROGRESS.filter((s) => {
+      if (selectedClassId === "all") {
+        return teacherClasses.some((c) => c.studentIds.includes(s.userId));
+      }
+      return selectedClass?.studentIds.includes(s.userId);
+    });
+  }, [selectedClass, selectedClassId, teacherClasses]);
+
+  const enrichedStudents = useMemo<EnrichedStudent[]>(() => {
+    return studentsInScope.map((s) => {
       const userProgress = getUserProgress(s.userId);
+      const studentClass = getClassById(s.classId);
+      const grade: Grade | undefined = studentClass?.grade;
       let totalCompleted = 0;
       let liveXp = 0;
-      const subjectsStats = SUBJECTS.map((subj) => {
+      const subjectsStats: SubjectStat[] = SUBJECTS.map((subj) => {
         const p = userProgress[subj.id];
-        const completed = p?.completedLessons.length ?? 0;
         const xp = p?.xp ?? 0;
+        // Count completion only against the student's own grade — that's what
+        // a homeroom teacher actually cares about.
+        const completed =
+          p && grade
+            ? p.completedTopics.filter((id) =>
+                id.startsWith(`${subj.id}.g${grade}.`)
+              ).length
+            : 0;
+        const total = grade
+          ? countTopicsBySubjectGrade(subj.id, grade)
+          : 0;
         totalCompleted += completed;
         liveXp += xp;
         return {
@@ -44,18 +111,27 @@ export function TeacherDashboard() {
           icon: subj.icon,
           accent: subj.accent,
           completed,
-          total: subj.lessons.length,
+          total,
           xp,
         };
       });
       return {
-        ...s,
+        userId: s.userId,
+        name: s.name,
+        avatar: s.avatar,
+        classId: s.classId,
+        xp: s.xp,
+        level: s.level,
+        weakTopics: s.weakTopics,
+        lastActive: s.lastActive,
+        promptQuality: s.promptQuality,
+        thinkingIndependence: s.thinkingIndependence,
         subjectsStats,
         totalCompleted,
         liveXp: Math.max(liveXp, s.xp),
       };
     });
-  }, [getUserProgress]);
+  }, [getUserProgress, studentsInScope]);
 
   const stats = useMemo(() => {
     const total = enrichedStudents.length;
@@ -103,9 +179,7 @@ export function TeacherDashboard() {
         }
       });
       const percent =
-        totalPossible > 0
-          ? Math.round((totalDone / totalPossible) * 100)
-          : 0;
+        totalPossible > 0 ? Math.round((totalDone / totalPossible) * 100) : 0;
       return {
         id: subj.id,
         name: subj.shortName,
@@ -131,6 +205,17 @@ export function TeacherDashboard() {
     return { label: "Зависает на ИИ", kind: "warn" };
   };
 
+  // Identify the weakest student in the current scope, if any — used for the
+  // "Рекомендация ИИ-куратора" panel.
+  const weakest = useMemo(() => {
+    if (sorted.length === 0) return null;
+    return [...sorted].sort(
+      (a, b) =>
+        (a.thinkingIndependence + a.promptQuality) / 2 -
+        (b.thinkingIndependence + b.promptQuality) / 2
+    )[0];
+  }, [sorted]);
+
   return (
     <div className="teacher-page">
       <motion.div
@@ -147,15 +232,67 @@ export function TeacherDashboard() {
             Пульс класса — <span className="accent">аналитика</span>
           </h1>
           <p className="teacher-hero__sub">
-            Показывает, кто думает самостоятельно, а кто «зависает» на ИИ — по
-            всем предметам сразу.
+            Ты классный руководитель {teacherClasses.length} классов:{" "}
+            {teacherClasses.map((c) => c.name).join(", ")}. Выбери класс,
+            чтобы увидеть его пульс — кто думает сам, а кто «зависает» на
+            ИИ.
           </p>
         </div>
       </motion.div>
 
+      <section className="class-switcher">
+        <button
+          type="button"
+          onClick={() => setSelectedClassId("all")}
+          className={`class-pill ${
+            selectedClassId === "all" ? "active" : ""
+          }`}
+        >
+          <span className="class-pill__emoji">🏫</span>
+          <div className="class-pill__body">
+            <span className="class-pill__name">Все классы</span>
+            <span className="class-pill__meta">
+              {teacherClasses.reduce(
+                (sum, c) => sum + c.studentIds.length,
+                0
+              )}{" "}
+              учеников
+            </span>
+          </div>
+        </button>
+        {teacherClasses.map((c) => (
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => setSelectedClassId(c.id)}
+            className={`class-pill ${
+              selectedClassId === c.id ? "active" : ""
+            }`}
+            style={
+              selectedClassId === c.id
+                ? ({ borderColor: c.accent, color: c.accent } as React.CSSProperties)
+                : undefined
+            }
+          >
+            <span className="class-pill__emoji">{c.emoji}</span>
+            <div className="class-pill__body">
+              <span className="class-pill__name">{c.name}</span>
+              <span className="class-pill__meta">
+                {c.grade} класс · {c.studentIds.length} ученик
+                {c.studentIds.length === 1 ? "" : "ов"}
+              </span>
+            </div>
+          </button>
+        ))}
+      </section>
+
       <section className="metrics">
         <div className="metric-card">
-          <div className="metric-card__label">Всего учеников</div>
+          <div className="metric-card__label">
+            {selectedClass
+              ? `Учеников в ${selectedClass.name}`
+              : "Всего учеников"}
+          </div>
           <div className="metric-card__value">{stats.total}</div>
         </div>
         <div className="metric-card">
@@ -176,9 +313,23 @@ export function TeacherDashboard() {
 
       <section className="subjects-breakdown">
         <div className="subjects-breakdown__head">
-          <h2>Активность по предметам</h2>
+          <h2>
+            Активность по предметам
+            {selectedClass && (
+              <span
+                className="class-chip"
+                style={{
+                  marginLeft: 12,
+                  borderColor: `${selectedClass.accent}66`,
+                  color: selectedClass.accent,
+                }}
+              >
+                {selectedClass.emoji} {selectedClass.name}
+              </span>
+            )}
+          </h2>
           <span className="teacher-table-card__meta">
-            Среднее прохождение уроков класса
+            Среднее прохождение тем своей параллели
           </span>
         </div>
         <div className="subjects-breakdown__grid">
@@ -228,7 +379,7 @@ export function TeacherDashboard() {
           <div className="teacher-table">
             <div className="teacher-table__head">
               <div>Ученик</div>
-              <div>Уровень</div>
+              <div>Класс</div>
               <div>XP</div>
               <div>Качество промптов</div>
               <div>Самостоятельность</div>
@@ -236,8 +387,15 @@ export function TeacherDashboard() {
               <div>Активность</div>
             </div>
 
+            {sorted.length === 0 && (
+              <div className="teacher-table__empty">
+                В этом классе пока нет учеников с прогрессом.
+              </div>
+            )}
+
             {sorted.map((s, i) => {
               const status = getStatus(s.thinkingIndependence, s.promptQuality);
+              const cls = getClassById(s.classId);
               return (
                 <motion.div
                   key={s.userId}
@@ -251,7 +409,7 @@ export function TeacherDashboard() {
                     <div>
                       <div className="teacher-table__name">{s.name}</div>
                       <div className="teacher-table__meta">
-                        {s.totalCompleted} уроков по всем предметам
+                        {s.totalCompleted} тем своей параллели пройдено
                       </div>
                       <div className="teacher-table__subjects">
                         {s.subjectsStats
@@ -271,7 +429,19 @@ export function TeacherDashboard() {
                     </div>
                   </div>
                   <div className="teacher-table__cell">
-                    <span className="level-pill">{s.level}</span>
+                    {cls ? (
+                      <span
+                        className="class-chip"
+                        style={{
+                          borderColor: `${cls.accent}66`,
+                          color: cls.accent,
+                        }}
+                      >
+                        {cls.emoji} {cls.name}
+                      </span>
+                    ) : (
+                      <span className="teacher-table__cell--muted">—</span>
+                    )}
                   </div>
                   <div className="teacher-table__cell">{s.liveXp}</div>
                   <div className="teacher-table__cell">
@@ -296,8 +466,12 @@ export function TeacherDashboard() {
 
         <div className="side-col">
           <div className="panel">
-            <h3 className="panel__title">Проблемные темы класса</h3>
-            <p className="panel__sub">Топ-3 тем, где ученики спотыкаются</p>
+            <h3 className="panel__title">Проблемные темы</h3>
+            <p className="panel__sub">
+              {selectedClass
+                ? `Топ-3 в ${selectedClass.name}`
+                : "Топ-3 по всем твоим классам"}
+            </p>
             <ol className="problem-topics">
               {stats.topProblemTopics.length === 0 && (
                 <li className="panel__text">Пока нет данных.</li>
@@ -308,7 +482,11 @@ export function TeacherDashboard() {
                   <span className="problem-topic__name">{topic}</span>
                   <span className="problem-topic__count">
                     {count}{" "}
-                    {count === 1 ? "ученик" : count < 5 ? "ученика" : "учеников"}
+                    {count === 1
+                      ? "ученик"
+                      : count < 5
+                      ? "ученика"
+                      : "учеников"}
                   </span>
                 </li>
               ))}
@@ -317,13 +495,46 @@ export function TeacherDashboard() {
 
           <div className="panel">
             <h3 className="panel__title">Рекомендация ИИ-куратора</h3>
-            <p className="panel__text">
-              Обратите внимание на <b>Тимура</b>: низкая самостоятельность
-              (38%) и слабое качество промптов. Возможно, он копирует ответы.
-              Рекомендуем провести индивидуальную беседу и назначить
-              «Сократ-тренировку» вручную.
-            </p>
+            {weakest ? (
+              <p className="panel__text">
+                Обратите внимание на <b>{weakest.name.split(" ")[0]}</b> (
+                {getClassById(weakest.classId)?.name ?? "—"}): низкая
+                самостоятельность ({weakest.thinkingIndependence}%) и
+                качество промптов ({weakest.promptQuality}%). Вероятно,
+                копирует ответы. Рекомендуем индивидуальную беседу и
+                «Сократ-тренировку» вручную.
+              </p>
+            ) : (
+              <p className="panel__text">
+                В выбранном классе пока недостаточно данных для
+                рекомендации.
+              </p>
+            )}
           </div>
+
+          {selectedClass && (
+            <div className="panel">
+              <h3 className="panel__title">Кто учится в {selectedClass.name}</h3>
+              <ul className="class-roster">
+                {selectedClass.studentIds.map((id) => {
+                  const m = MOCK_PROGRESS.find((p) => p.userId === id);
+                  if (!m) return null;
+                  return (
+                    <li key={id} className="class-roster__row">
+                      <span className="class-roster__avatar">{m.avatar}</span>
+                      <span className="class-roster__name">{m.name}</span>
+                      <span className="class-roster__xp">{m.xp} XP</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {selectedClass.motto && (
+                <p className="panel__text panel__text--muted">
+                  «{selectedClass.motto}»
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </section>
     </div>

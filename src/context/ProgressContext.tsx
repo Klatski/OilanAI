@@ -9,21 +9,28 @@ import {
 } from "react";
 import { MOCK_PROGRESS } from "../data/mockProgress";
 import { SUBJECTS } from "../data/mockSubjects";
+import { getTopicById } from "../data/topics";
 import type { SubjectProgress, UserProgressMap } from "../types";
 
 /**
  * Per-user per-subject progress, persisted in localStorage.
- * Seeded from MOCK_PROGRESS for the `math` subject the first time a user logs in.
+ *
+ * v2 schema (post school-structure refactor):
+ *   - `completedTopics: string[]` — stable topic ids (e.g. "math.g7.q2.t3"),
+ *     replacing the old numeric `completedLessons`.
+ *
+ * Old v1 keys are ignored; demo progress for each user is re-seeded from
+ * MOCK_PROGRESS so the dashboard stays believable on first launch.
  */
 
 interface ProgressStore {
   [userId: string]: UserProgressMap;
 }
 
-const STORAGE_KEY = "subjectProgress_v1";
+const STORAGE_KEY = "subjectProgress_v2";
 
 const EMPTY_SUBJECT_PROGRESS: SubjectProgress = {
-  completedLessons: [],
+  completedTopics: [],
   xp: 0,
 };
 
@@ -50,15 +57,26 @@ function saveStore(store: ProgressStore) {
 function seedUser(userId: string): UserProgressMap {
   const base: UserProgressMap = {};
   SUBJECTS.forEach((s) => {
-    base[s.id] = { ...EMPTY_SUBJECT_PROGRESS, completedLessons: [] };
+    base[s.id] = { completedTopics: [], xp: 0 };
   });
 
   const mock = MOCK_PROGRESS.find((m) => m.userId === userId);
   if (mock) {
-    base["math"] = {
-      completedLessons: [...mock.completedLessons],
-      xp: mock.xp,
-    };
+    // Group seeded topics by their subject so we can reflect xp / completion
+    // per-subject just like the live progress does.
+    const xpPerCompletion = mock.completedTopics.length
+      ? Math.round(mock.xp / mock.completedTopics.length)
+      : 0;
+    for (const topicId of mock.completedTopics) {
+      const t = getTopicById(topicId);
+      if (!t) continue;
+      const slot = base[t.subjectId] ?? { completedTopics: [], xp: 0 };
+      if (!slot.completedTopics.includes(topicId)) {
+        slot.completedTopics.push(topicId);
+        slot.xp += xpPerCompletion;
+      }
+      base[t.subjectId] = slot;
+    }
   }
   return base;
 }
@@ -69,13 +87,21 @@ interface ProgressContextValue {
     subjectId: string
   ) => SubjectProgress;
   getUserProgress: (userId: string | undefined) => UserProgressMap;
-  completeLesson: (
+  /**
+   * Mark one Topic (by stable id) as completed. The topic id encodes its
+   * subject, so callers don't need to pass it separately.
+   */
+  completeTopic: (
     userId: string,
-    subjectId: string,
-    lessonId: number,
+    topicId: string,
     xpGain?: number
   ) => void;
   resetSubject: (userId: string, subjectId: string) => void;
+  /** Has this user completed the given topic? */
+  hasCompletedTopic: (
+    userId: string | undefined,
+    topicId: string
+  ) => boolean;
 }
 
 const ProgressContext = createContext<ProgressContextValue | undefined>(
@@ -89,15 +115,12 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     saveStore(store);
   }, [store]);
 
-  const ensureUser = useCallback(
-    (userId: string) => {
-      setStore((prev) => {
-        if (prev[userId]) return prev;
-        return { ...prev, [userId]: seedUser(userId) };
-      });
-    },
-    []
-  );
+  const ensureUser = useCallback((userId: string) => {
+    setStore((prev) => {
+      if (prev[userId]) return prev;
+      return { ...prev, [userId]: seedUser(userId) };
+    });
+  }, []);
 
   const getUserProgress = useCallback(
     (userId: string | undefined): UserProgressMap => {
@@ -105,7 +128,6 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       const existing = store[userId];
       if (existing) return existing;
       const seeded = seedUser(userId);
-      // schedule async seed so state stays consistent
       queueMicrotask(() => ensureUser(userId));
       return seeded;
     },
@@ -120,26 +142,39 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     [getUserProgress]
   );
 
-  const completeLesson = useCallback(
-    (userId: string, subjectId: string, lessonId: number, xpGain = 60) => {
-      if (!userId || !subjectId || !lessonId) return;
+  const completeTopic = useCallback(
+    (userId: string, topicId: string, xpGain = 60) => {
+      if (!userId || !topicId) return;
+      const topic = getTopicById(topicId);
+      if (!topic) return;
       setStore((prev) => {
         const user = prev[userId] ?? seedUser(userId);
-        const subj = user[subjectId] ?? { ...EMPTY_SUBJECT_PROGRESS };
-        const alreadyDone = subj.completedLessons.includes(lessonId);
+        const subj = user[topic.subjectId] ?? { ...EMPTY_SUBJECT_PROGRESS };
+        const alreadyDone = subj.completedTopics.includes(topicId);
         const nextSubj: SubjectProgress = {
-          completedLessons: alreadyDone
-            ? subj.completedLessons
-            : [...subj.completedLessons, lessonId].sort((a, b) => a - b),
+          completedTopics: alreadyDone
+            ? subj.completedTopics
+            : [...subj.completedTopics, topicId],
           xp: alreadyDone ? subj.xp : subj.xp + xpGain,
         };
         return {
           ...prev,
-          [userId]: { ...user, [subjectId]: nextSubj },
+          [userId]: { ...user, [topic.subjectId]: nextSubj },
         };
       });
     },
     []
+  );
+
+  const hasCompletedTopic = useCallback(
+    (userId: string | undefined, topicId: string): boolean => {
+      if (!userId || !topicId) return false;
+      const topic = getTopicById(topicId);
+      if (!topic) return false;
+      const user = getUserProgress(userId);
+      return user[topic.subjectId]?.completedTopics.includes(topicId) ?? false;
+    },
+    [getUserProgress]
   );
 
   const resetSubject = useCallback((userId: string, subjectId: string) => {
@@ -160,10 +195,17 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
     () => ({
       getSubjectProgress,
       getUserProgress,
-      completeLesson,
+      completeTopic,
       resetSubject,
+      hasCompletedTopic,
     }),
-    [getSubjectProgress, getUserProgress, completeLesson, resetSubject]
+    [
+      getSubjectProgress,
+      getUserProgress,
+      completeTopic,
+      resetSubject,
+      hasCompletedTopic,
+    ]
   );
 
   return (

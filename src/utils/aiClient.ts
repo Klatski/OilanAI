@@ -31,6 +31,10 @@ export interface SocraticRequestParams {
   knowledge: string;
   history: ChatMessage[];
   latestUserMessage: string;
+  /** School parallel of the student (5..11), used to scale answer depth. */
+  grade?: number;
+  /** Academic quarter (1..4). */
+  quarter?: number;
 }
 
 const GEMINI_OPENAI_ENDPOINT =
@@ -114,6 +118,8 @@ async function tryProxy(
         lesson: params.lesson,
         topic: params.topic,
         knowledge: params.knowledge,
+        grade: params.grade,
+        quarter: params.quarter,
         messages: toOpenAIMessages(params.history),
       }),
     });
@@ -186,6 +192,8 @@ async function tryGeminiDirect(
     lesson: params.lesson,
     topic: params.topic,
     knowledge: params.knowledge,
+    grade: params.grade,
+    quarter: params.quarter,
   });
 
   // Walk through the fallback chain.

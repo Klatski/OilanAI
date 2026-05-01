@@ -4,11 +4,26 @@ import { motion } from "framer-motion";
 import { SUBJECTS } from "../data/mockSubjects";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
+import { useQuarter } from "../context/QuarterContext";
+import { getClassByStudentId } from "../data/mockClasses";
+import {
+  countTopicsBySubjectGrade,
+  countTopicsForQuarter,
+  getTopicsBySubjectGrade,
+} from "../data/topics";
+import type { Quarter } from "../types";
 
 export function SubjectPickerPage() {
   const { currentUser } = useAuth();
   const { getUserProgress } = useProgress();
+  const { currentQuarter } = useQuarter();
   const navigate = useNavigate();
+
+  const studentClass = useMemo(
+    () => getClassByStudentId(currentUser?.id),
+    [currentUser?.id]
+  );
+  const grade = studentClass?.grade;
 
   const progressMap = useMemo(
     () => getUserProgress(currentUser?.id),
@@ -17,18 +32,23 @@ export function SubjectPickerPage() {
 
   const totals = useMemo(() => {
     let totalXp = 0;
-    let totalCompleted = 0;
-    let totalLessons = 0;
+    let totalCompletedThisGrade = 0;
+    let totalThisGrade = 0;
     SUBJECTS.forEach((s) => {
       const p = progressMap[s.id];
-      if (p) {
-        totalXp += p.xp;
-        totalCompleted += p.completedLessons.length;
+      if (p) totalXp += p.xp;
+      if (grade) {
+        const gradeTopics = getTopicsBySubjectGrade(s.id, grade).map((t) => t.id);
+        totalThisGrade += gradeTopics.length;
+        if (p) {
+          totalCompletedThisGrade += p.completedTopics.filter((id) =>
+            gradeTopics.includes(id)
+          ).length;
+        }
       }
-      totalLessons += s.lessons.length;
     });
-    return { totalXp, totalCompleted, totalLessons };
-  }, [progressMap]);
+    return { totalXp, totalCompletedThisGrade, totalThisGrade };
+  }, [progressMap, grade]);
 
   return (
     <div className="subject-picker">
@@ -47,7 +67,23 @@ export function SubjectPickerPage() {
               Привет, {currentUser?.name?.split(" ")[0] ?? "друг"}!
             </div>
             <div className="student-hero__sub">
-              Выбери предмет, в который хочешь погрузиться сегодня.
+              {studentClass ? (
+                <>
+                  Ты в классе{" "}
+                  <span
+                    className="class-chip class-chip--inline"
+                    style={{
+                      borderColor: `${studentClass.accent}66`,
+                      color: studentClass.accent,
+                    }}
+                  >
+                    {studentClass.emoji} {studentClass.name}
+                  </span>{" "}
+                  · {currentQuarter} четверть. Выбери предмет, чтобы начать.
+                </>
+              ) : (
+                <>Выбери предмет, в который хочешь погрузиться сегодня.</>
+              )}
             </div>
           </div>
         </div>
@@ -59,10 +95,12 @@ export function SubjectPickerPage() {
           </div>
           <div className="stat">
             <div className="stat__value stat__value--accent">
-              {totals.totalCompleted}
-              <span className="stat__suffix">/ {totals.totalLessons}</span>
+              {totals.totalCompletedThisGrade}
+              <span className="stat__suffix">/ {totals.totalThisGrade}</span>
             </div>
-            <div className="stat__label">Уроков пройдено</div>
+            <div className="stat__label">
+              {grade ? `Тем ${grade} класса пройдено` : "Уроков пройдено"}
+            </div>
           </div>
           <div className="stat">
             <div className="stat__value">{SUBJECTS.length}</div>
@@ -74,17 +112,35 @@ export function SubjectPickerPage() {
       <div className="subject-picker__grid">
         {SUBJECTS.map((subject, idx) => {
           const p = progressMap[subject.id] ?? {
-            completedLessons: [],
+            completedTopics: [] as string[],
             xp: 0,
           };
-          const total = subject.lessons.length;
-          const done = p.completedLessons.length;
-          const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+          const totalForGrade = grade
+            ? countTopicsBySubjectGrade(subject.id, grade)
+            : 0;
+          const gradeTopicIds = grade
+            ? new Set(
+                getTopicsBySubjectGrade(subject.id, grade).map((t) => t.id)
+              )
+            : new Set<string>();
+          const doneInGrade = p.completedTopics.filter((id) =>
+            gradeTopicIds.has(id)
+          ).length;
+
+          const totalInQuarter = grade
+            ? countTopicsForQuarter(subject.id, grade, currentQuarter as Quarter)
+            : 0;
+
+          const percent =
+            totalForGrade > 0 ? Math.round((doneInGrade / totalForGrade) * 100) : 0;
+          const subjectAvailable = totalForGrade > 0;
 
           return (
             <motion.button
               key={subject.id}
-              className="subject-card"
+              className={`subject-card ${
+                !subjectAvailable ? "subject-card--unavailable" : ""
+              }`}
               onClick={() => navigate(`/student/subject/${subject.id}`)}
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
@@ -109,12 +165,21 @@ export function SubjectPickerPage() {
               <div className="subject-card__body">
                 <div className="subject-card__name">{subject.name}</div>
                 <div className="subject-card__desc">{subject.description}</div>
+                {grade && (
+                  <div className="subject-card__quarter-tag">
+                    {totalInQuarter > 0
+                      ? `${totalInQuarter} тем в ${currentQuarter} четв · ${grade} кл`
+                      : subjectAvailable
+                      ? `Эта четверть пуста (${grade} кл)`
+                      : `Не входит в ${grade} класс`}
+                  </div>
+                )}
               </div>
 
               <div className="subject-card__footer">
                 <div className="subject-card__progress-head">
                   <span>
-                    {done} / {total} уроков
+                    {doneInGrade} / {totalForGrade} тем
                   </span>
                   <span className="subject-card__xp">{p.xp} XP</span>
                 </div>
@@ -130,7 +195,13 @@ export function SubjectPickerPage() {
               </div>
 
               <div className="subject-card__cta">
-                {done === 0 ? "Начать →" : done === total ? "Пройдено ✓" : "Продолжить →"}
+                {!subjectAvailable
+                  ? "Скоро →"
+                  : doneInGrade === 0
+                  ? "Начать →"
+                  : doneInGrade === totalForGrade
+                  ? "Пройдено ✓"
+                  : "Продолжить →"}
               </div>
             </motion.button>
           );

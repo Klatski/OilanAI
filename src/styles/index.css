@@ -870,13 +870,13 @@ textarea {
 
 .quest-map__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
 }
 
 .quest-node {
   position: relative;
-  padding: 20px;
+  padding: 22px 22px 22px 22px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--bg-surface);
@@ -888,6 +888,15 @@ textarea {
   align-items: flex-start;
   transition: all 0.2s ease;
   overflow: hidden;
+  min-height: 210px;
+}
+
+.quest-node__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .quest-node.locked {
@@ -897,7 +906,7 @@ textarea {
 }
 
 .quest-node.unlocked:hover {
-  border-color: rgba(108, 99, 255, 0.5);
+  border-color: var(--subject-accent, rgba(108, 99, 255, 0.5));
   box-shadow: 0 12px 32px rgba(108, 99, 255, 0.18);
 }
 
@@ -938,38 +947,64 @@ textarea {
 }
 
 .quest-node__num {
-  font-size: 10px;
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.7px;
   color: var(--text-dim);
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+  /* Reserve space for the absolute-positioned badge / foreign tag in the
+     top-right corner so the grade pill never tucks underneath. */
+  padding-right: 96px;
+  min-height: 22px;
 }
 
 .quest-node__title {
   font-weight: 700;
-  font-size: 15px;
-  margin-top: 2px;
+  font-size: 15.5px;
+  line-height: 1.35;
+  /* Title can be 1-2 lines but always reserves a 2-line slot so cards stay
+     visually aligned in the grid. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  min-height: calc(15.5px * 1.35 * 2);
 }
 
 .quest-node__topic {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
-  margin-top: 4px;
+  line-height: 1.5;
+  /* Description: clamp to 5 lines so very long ones (e.g. курс грамматики)
+     don't blow out the card. Tooltip-via-title would need JS — for the demo
+     the description is short enough. */
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .quest-node__badge {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  font-size: 10px;
+  top: 16px;
+  right: 16px;
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
   color: var(--success);
-  background: rgba(0, 229, 160, 0.1);
-  border: 1px solid rgba(0, 229, 160, 0.3);
-  padding: 3px 8px;
+  background: rgba(0, 229, 160, 0.12);
+  border: 1px solid rgba(0, 229, 160, 0.35);
+  padding: 3px 9px;
   border-radius: 999px;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
 }
 
 .quest-node__pulse {
@@ -3211,5 +3246,623 @@ body {
   .feedback-cards__tag {
     font-size: 10px;
     letter-spacing: 1px;
+  }
+}
+
+/* ==========================================================================
+   School-structure additions: classes, quarters, foreign topics
+   ========================================================================== */
+
+/* ---- Class chip (5А, 7Б, 11В) ----------------------------------------- */
+
+.class-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  vertical-align: middle;
+  transition: background 0.18s ease;
+}
+
+.class-chip--inline {
+  font-size: 13px;
+  padding: 3px 9px;
+}
+
+.class-chip--header {
+  font-size: 12px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ---- Quarter switcher (used in header + subject picker + student page) -- */
+
+.quarter-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+.quarter-switch--inline {
+  margin-left: 12px;
+}
+
+.quarter-switch--header {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.quarter-switch__label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 0 6px 0 8px;
+}
+
+.quarter-switch__btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.quarter-switch__btn:hover:not(:disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.quarter-switch__btn.active {
+  background: var(--grad-accent);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(108, 99, 255, 0.35);
+}
+
+.quarter-switch__btn.current:not(.active) {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(0, 229, 160, 0.45);
+}
+
+.quarter-switch__btn.empty {
+  opacity: 0.45;
+}
+
+.quarter-switch__star {
+  position: absolute;
+  top: -3px;
+  right: -2px;
+  font-size: 8px;
+  color: var(--success);
+}
+
+/* ---- Grade switcher (parallel browser inside StudentPage) -------------- */
+
+.grade-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.grade-switch__label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding: 0 8px;
+}
+
+.grade-switch__btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+}
+
+.grade-switch__btn:hover:not(:disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.grade-switch__btn.active {
+  background: var(--grad-accent);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(108, 99, 255, 0.35);
+}
+
+.grade-switch__btn.own:not(.active) {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(0, 229, 160, 0.4);
+}
+
+.grade-switch__btn.empty {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.grade-switch__star {
+  position: absolute;
+  top: -3px;
+  right: -2px;
+  font-size: 8px;
+  color: var(--success);
+}
+
+.subject-card__quarter-tag {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.2px;
+}
+
+.subject-card--unavailable {
+  opacity: 0.55;
+}
+
+.subject-card--unavailable .subject-card__cta {
+  color: var(--text-muted);
+}
+
+/* ---- StudentPage quest-map controls ----------------------------------- */
+
+.quest-map__title-row h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.quest-map__class-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.quest-map__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+  align-items: center;
+  margin: 14px 0 8px;
+}
+
+.quest-map__notice {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(252, 165, 41, 0.08);
+  border: 1px solid rgba(252, 165, 41, 0.25);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.quest-map__notice--soft {
+  background: rgba(108, 99, 255, 0.08);
+  border-color: rgba(108, 99, 255, 0.28);
+}
+
+.quest-map__empty {
+  grid-column: 1 / -1;
+  padding: 32px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.link-btn {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--accent-2);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+
+.link-btn:hover {
+  color: var(--accent-1);
+}
+
+/* ---- Topic node (extends .quest-node) --------------------------------- */
+
+.quest-node__grade-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.quest-node.primary {
+  box-shadow: 0 14px 36px rgba(108, 99, 255, 0.18);
+  border-color: var(--subject-accent);
+}
+
+.quest-node.foreign {
+  opacity: 0.62;
+  filter: saturate(0.85);
+}
+
+.quest-node.foreign:hover {
+  opacity: 0.95;
+  filter: saturate(1);
+}
+
+.quest-node__foreign-tag {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.quest-node {
+  position: relative;
+}
+
+/* ---- Teacher dashboard: class switcher --------------------------------- */
+
+.class-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 22px;
+}
+
+.class-pill {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  transition: transform 0.15s ease, border-color 0.18s ease,
+    box-shadow 0.18s ease;
+  min-width: 170px;
+}
+
+.class-pill:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-strong);
+}
+
+.class-pill.active {
+  border-color: currentColor;
+  box-shadow: 0 10px 26px rgba(108, 99, 255, 0.18);
+}
+
+.class-pill__emoji {
+  font-size: 24px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.class-pill__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.class-pill__name {
+  font-size: 15px;
+  font-weight: 700;
+  color: inherit;
+}
+
+.class-pill__meta {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.2px;
+}
+
+.teacher-table__empty {
+  padding: 22px;
+  text-align: center;
+  color: var(--text-muted);
+  border-top: 1px dashed var(--border);
+}
+
+.class-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.class-roster__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.class-roster__avatar {
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+}
+
+.class-roster__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.class-roster__xp {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.panel__text--muted {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-style: italic;
+  margin-top: 10px;
+}
+
+/* ---- Account switcher: where (class) line ------------------------------ */
+
+.account-switcher__item-where {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  letter-spacing: 0.2px;
+  vertical-align: middle;
+}
+
+/* ---- Login: soft hint note --------------------------------------------- */
+
+.login-card__hint-note--soft {
+  margin-top: 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ---- Header: keep right-side group neat on small screens -------------- */
+
+@media (max-width: 720px) {
+  .quarter-switch--header,
+  .class-chip--header {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .quest-map__controls {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .grade-switch {
+    flex-wrap: wrap;
+  }
+  .class-switcher {
+    gap: 8px;
+  }
+  .class-pill {
+    min-width: 0;
+    flex: 1 1 calc(50% - 4px);
+    padding: 10px 12px;
+  }
+}
+
+/* ==========================================================================
+   Calendar quarter — read-only display (no longer user-switchable)
+   ========================================================================== */
+
+.quarter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  background: rgba(0, 229, 160, 0.08);
+  border: 1px solid rgba(0, 229, 160, 0.25);
+  color: var(--success);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.quarter-pill__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 8px rgba(0, 229, 160, 0.7);
+  animation: pulseDot 2.4s ease-in-out infinite;
+}
+
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
+}
+
+@media (max-width: 720px) {
+  .quarter-pill {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Custom scrollbars — themed, desktop-only.
+   On touch devices we keep native scrollbars (they're nicer to use).
+   ==========================================================================
+   Browser support note:
+   - Webkit / Chromium / Safari: ::-webkit-scrollbar pseudo-elements.
+   - Firefox: scrollbar-width / scrollbar-color (less control, but tinted).
+   ========================================================================== */
+
+@media (hover: hover) and (pointer: fine) {
+  /* Page-level scrollbar (html/body). Tinted under the OilanAI brand. */
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(108, 99, 255, 0.55) rgba(255, 255, 255, 0.04);
+  }
+  html::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+    background: transparent;
+  }
+  html::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.025);
+  }
+  html::-webkit-scrollbar-thumb {
+    background: linear-gradient(
+      180deg,
+      rgba(108, 99, 255, 0.55) 0%,
+      rgba(0, 212, 255, 0.55) 100%
+    );
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+  html::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(
+      180deg,
+      rgba(108, 99, 255, 0.85) 0%,
+      rgba(0, 212, 255, 0.85) 100%
+    );
+    background-clip: padding-box;
+  }
+  html::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  /* Generic themed thin scrollbar. Apply by adding `themed-scroll` to any
+     scrollable container, OR rely on the targeted rules below. */
+  .themed-scroll,
+  .chat-side,
+  .chat-window__messages {
+    scrollbar-width: thin;
+    scrollbar-color: var(--subject-accent, rgba(108, 99, 255, 0.6))
+      rgba(255, 255, 255, 0.04);
+  }
+
+  .themed-scroll::-webkit-scrollbar,
+  .chat-side::-webkit-scrollbar,
+  .chat-window__messages::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .themed-scroll::-webkit-scrollbar-track,
+  .chat-side::-webkit-scrollbar-track,
+  .chat-window__messages::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .themed-scroll::-webkit-scrollbar-thumb,
+  .chat-side::-webkit-scrollbar-thumb,
+  .chat-window__messages::-webkit-scrollbar-thumb {
+    /* Falls back to brand purple if the page didn't set --subject-accent. */
+    background: var(--subject-accent, #6c63ff);
+    opacity: 0.55;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+
+  .themed-scroll::-webkit-scrollbar-thumb:hover,
+  .chat-side::-webkit-scrollbar-thumb:hover,
+  .chat-window__messages::-webkit-scrollbar-thumb:hover {
+    filter: brightness(1.2);
   }
 }

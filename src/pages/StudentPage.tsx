@@ -1,34 +1,75 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
+import { useQuarter } from "../context/QuarterContext";
 import { getSubjectById, SUBJECTS } from "../data/mockSubjects";
+import { getClassByStudentId } from "../data/mockClasses";
+import {
+  countTopicsBySubjectGrade,
+  getTopicsBySubjectGradeGroupedByQuarter,
+} from "../data/topics";
+import {
+  ALL_GRADES,
+  ALL_QUARTERS,
+  type Grade,
+  type Quarter,
+  type Topic,
+} from "../types";
 
 export function StudentPage() {
   const { currentUser } = useAuth();
   const { getSubjectProgress } = useProgress();
+  const { currentQuarter } = useQuarter();
   const navigate = useNavigate();
   const { subjectId } = useParams();
 
   const subject = useMemo(() => getSubjectById(subjectId), [subjectId]);
+  const studentClass = useMemo(
+    () => getClassByStudentId(currentUser?.id),
+    [currentUser?.id]
+  );
+  const ownGrade: Grade | undefined = studentClass?.grade;
+
+  // The student can browse other parallels out of curiosity (free unlock).
+  // Default view is their own parallel; the selector lets them peek at
+  // 5/7/11 (the only ones with content in the demo) or any other.
+  const [browseGrade, setBrowseGrade] = useState<Grade>(
+    ownGrade ?? (5 as Grade)
+  );
+
+  const [activeQuarter, setActiveQuarter] = useState<Quarter>(
+    currentQuarter as Quarter
+  );
 
   if (!subject) {
     return <Navigate to="/student" replace />;
   }
 
   const progress = getSubjectProgress(currentUser?.id, subject.id);
-  const completedIds = new Set(progress.completedLessons);
+  const completedIds = new Set(progress.completedTopics);
 
-  const currentLevel = progress.completedLessons.length;
-  const totalLessons = subject.lessons.length;
+  const topicsByQuarter = getTopicsBySubjectGradeGroupedByQuarter(
+    subject.id,
+    browseGrade
+  );
 
+  const totalTopicsInGrade = countTopicsBySubjectGrade(subject.id, browseGrade);
+  const completedInGrade = Array.from(completedIds).filter((id) =>
+    id.startsWith(`${subject.id}.g${browseGrade}.`)
+  ).length;
+
+  const currentLevel = completedIds.size; // total per subject across all grades
   const xpForNext = 150;
   const xpInLevel = progress.xp % xpForNext;
   const xpPercent = Math.min(100, Math.round((xpInLevel / xpForNext) * 100));
 
-  const openLesson = (lessonId: number) => {
-    navigate(`/student/chat?subject=${subject.id}&lesson=${lessonId}`);
+  const isOwnGrade = browseGrade === ownGrade;
+  const isCurrentQuarter = activeQuarter === currentQuarter;
+
+  const openTopic = (topic: Topic) => {
+    navigate(`/student/chat?topic=${encodeURIComponent(topic.id)}`);
   };
 
   return (
@@ -75,7 +116,21 @@ export function StudentPage() {
               {subject.icon}
             </span>
             <div>
-              <div className="student-hero__hello">{subject.name}</div>
+              <div className="student-hero__hello">
+                {subject.name}
+                {studentClass && (
+                  <span
+                    className="class-chip"
+                    style={{
+                      borderColor: `${studentClass.accent}66`,
+                      color: studentClass.accent,
+                      marginLeft: 12,
+                    }}
+                  >
+                    {studentClass.emoji} {studentClass.name}
+                  </span>
+                )}
+              </div>
               <div className="student-hero__sub">{subject.description}</div>
             </div>
           </div>
@@ -83,10 +138,12 @@ export function StudentPage() {
           <div className="student-hero__stats">
             <div className="stat">
               <div className="stat__value">
-                {currentLevel}
-                <span className="stat__suffix">/ {totalLessons}</span>
+                {completedInGrade}
+                <span className="stat__suffix">/ {totalTopicsInGrade}</span>
               </div>
-              <div className="stat__label">Уроков пройдено</div>
+              <div className="stat__label">
+                Тем {browseGrade} класса пройдено
+              </div>
             </div>
             <div className="stat">
               <div className="stat__value">{progress.xp}</div>
@@ -94,10 +151,12 @@ export function StudentPage() {
             </div>
             <div className="stat">
               <div className="stat__value stat__value--accent">
-                {Math.round((currentLevel / totalLessons) * 100)}
+                {totalTopicsInGrade > 0
+                  ? Math.round((completedInGrade / totalTopicsInGrade) * 100)
+                  : 0}
                 <span className="stat__suffix">%</span>
               </div>
-              <div className="stat__label">Прогресс</div>
+              <div className="stat__label">Прогресс параллели</div>
             </div>
           </div>
 
@@ -105,7 +164,7 @@ export function StudentPage() {
             <div className="student-hero__xp-head">
               <span>Прогресс до следующего уровня XP</span>
               <span>
-                {xpInLevel} / {xpForNext} XP
+                {xpInLevel} / {xpForNext} XP · уровень {currentLevel}
               </span>
             </div>
             <div className="xp-bar">
@@ -144,31 +203,139 @@ export function StudentPage() {
 
       <section className="quest-map">
         <div className="quest-map__header">
-          <h2>Карта квеста — {subject.name}</h2>
-          <p>
-            {totalLessons} точек-уровней. Открытые уровни светятся. Следующие
-            разблокируются после прохождения текущего.
-          </p>
+          <div className="quest-map__title-row">
+            <h2>
+              Карта тем — {subject.name}
+              {studentClass && (
+                <span className="quest-map__class-tag">
+                  {studentClass.name}
+                </span>
+              )}
+            </h2>
+            <p>
+              Темы своего класса и текущей четверти подсвечены — это твоя
+              основная программа. Остальные четверти и параллели открыты для
+              любопытства, но не обязательны.
+            </p>
+          </div>
+
+          <div className="quest-map__controls">
+            <div className="grade-switch">
+              <span className="grade-switch__label">Параллель:</span>
+              {ALL_GRADES.map((g) => {
+                const has = countTopicsBySubjectGrade(subject.id, g) > 0;
+                const isOwn = g === ownGrade;
+                return (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setBrowseGrade(g)}
+                    disabled={!has}
+                    title={
+                      !has
+                        ? `По этой параллели ${subject.name.toLowerCase()} в демо нет`
+                        : isOwn
+                        ? "Твой класс"
+                        : "Заглянуть из любопытства"
+                    }
+                    className={`grade-switch__btn ${
+                      browseGrade === g ? "active" : ""
+                    } ${isOwn ? "own" : ""} ${!has ? "empty" : ""}`}
+                  >
+                    {g}
+                    {isOwn && <span className="grade-switch__star">★</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="quarter-switch quarter-switch--inline">
+              <span className="quarter-switch__label">Четверть:</span>
+              {ALL_QUARTERS.map((q) => {
+                const isCurrent = q === currentQuarter;
+                const isActive = q === activeQuarter;
+                const hasTopics = topicsByQuarter[q].length > 0;
+                return (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setActiveQuarter(q)}
+                    disabled={!hasTopics && false}
+                    title={
+                      isCurrent ? "Текущая четверть" : "Заглянуть в эту четверть"
+                    }
+                    className={`quarter-switch__btn ${
+                      isActive ? "active" : ""
+                    } ${isCurrent ? "current" : ""} ${
+                      !hasTopics ? "empty" : ""
+                    }`}
+                  >
+                    {q}
+                    {isCurrent && (
+                      <span className="quarter-switch__star">●</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {!isOwnGrade && (
+            <div className="quest-map__notice">
+              ⓘ Ты смотришь темы <b>{browseGrade} класса</b>, а сам
+              учишься в <b>{ownGrade ?? "—"} классе</b>. Это нормально —
+              можно зайти ради любопытства, но прогресс по этой
+              параллели не обязателен.
+            </div>
+          )}
+
+          {isOwnGrade && !isCurrentQuarter && (
+            <div className="quest-map__notice quest-map__notice--soft">
+              ⓘ Это <b>{activeQuarter} четверть</b>, а у тебя сейчас{" "}
+              <b>{currentQuarter} четверть</b>. Можешь повторить или
+              забежать вперёд.
+            </div>
+          )}
         </div>
 
         <div className="quest-map__grid">
-          {subject.lessons.map((lesson, idx) => {
-            const done = completedIds.has(lesson.id);
-            const unlocked = lesson.id <= currentLevel + 1;
-            const active = lesson.id === currentLevel + 1 && !done;
+          {topicsByQuarter[activeQuarter].length === 0 && (
+            <div className="quest-map__empty">
+              По <b>{subject.name.toLowerCase()}</b> в {browseGrade} классе,{" "}
+              {activeQuarter} четверти тем пока нет.
+              {!isOwnGrade && (
+                <>
+                  {" "}
+                  Загляни в{" "}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => ownGrade && setBrowseGrade(ownGrade)}
+                  >
+                    свою параллель
+                  </button>
+                  .
+                </>
+              )}
+            </div>
+          )}
+
+          {topicsByQuarter[activeQuarter].map((topic, idx) => {
+            const done = completedIds.has(topic.id);
+            const isPrimary = isOwnGrade && isCurrentQuarter;
+            const isForeign = !isOwnGrade;
 
             return (
               <motion.button
-                key={lesson.id}
-                className={`quest-node ${done ? "done" : ""} ${
-                  unlocked ? "unlocked" : "locked"
-                } ${active ? "active" : ""}`}
-                disabled={!unlocked}
-                onClick={() => openLesson(lesson.id)}
+                key={topic.id}
+                className={`quest-node ${done ? "done" : ""} unlocked ${
+                  isPrimary ? "primary" : ""
+                } ${isForeign ? "foreign" : ""}`}
+                onClick={() => openTopic(topic)}
                 initial={{ opacity: 0, y: 18 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, delay: idx * 0.04 }}
-                whileHover={unlocked ? { y: -4, scale: 1.02 } : {}}
+                whileHover={{ y: -4, scale: 1.02 }}
                 style={
                   { "--subject-accent": subject.accent } as React.CSSProperties
                 }
@@ -176,20 +343,28 @@ export function StudentPage() {
                 <div
                   className="quest-node__icon"
                   style={
-                    done || active
+                    done || isPrimary
                       ? { background: subject.gradient }
                       : undefined
                   }
                 >
-                  {unlocked ? lesson.icon : "🔒"}
+                  {topic.icon}
                 </div>
                 <div className="quest-node__body">
-                  <div className="quest-node__num">Уровень {lesson.id}</div>
-                  <div className="quest-node__title">{lesson.title}</div>
-                  <div className="quest-node__topic">{lesson.topic}</div>
+                  <div className="quest-node__num">
+                    Тема {topic.order}
+                    <span className="quest-node__grade-pill">
+                      {topic.grade} кл · {topic.quarter} четв
+                    </span>
+                  </div>
+                  <div className="quest-node__title">{topic.title}</div>
+                  <div className="quest-node__topic">{topic.description}</div>
                 </div>
                 {done && <div className="quest-node__badge">Пройдено</div>}
-                {active && <div className="quest-node__pulse" />}
+                {isForeign && !done && (
+                  <div className="quest-node__foreign-tag">не твой класс</div>
+                )}
+                {isPrimary && !done && <div className="quest-node__pulse" />}
               </motion.button>
             );
           })}

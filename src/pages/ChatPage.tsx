@@ -8,7 +8,8 @@ import {
 } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { getLessonById, getSubjectById, SUBJECTS } from "../data/mockSubjects";
+import { getSubjectById } from "../data/mockSubjects";
+import { getTopicById } from "../data/topics";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
 import {
@@ -94,20 +95,23 @@ function computeAdaptiveXp(args: {
 
 export function ChatPage() {
   const { currentUser } = useAuth();
-  const { completeLesson, getSubjectProgress } = useProgress();
+  const { completeTopic, hasCompletedTopic } = useProgress();
   const [params] = useSearchParams();
 
-  const subjectParam = params.get("subject") ?? "math";
-  const lessonParam = Number(params.get("lesson")) || 1;
+  // We accept ?topic=<topicId> as the canonical URL.
+  // Legacy `?subject=&lesson=` URLs no longer resolve to anything (we did a
+  // hard schema migration); they redirect back to the picker below.
+  const topicParam = params.get("topic") ?? "";
 
+  const topic = useMemo(() => getTopicById(topicParam), [topicParam]);
   const subject = useMemo(
-    () => getSubjectById(subjectParam) ?? SUBJECTS[0],
-    [subjectParam]
+    () => (topic ? getSubjectById(topic.subjectId) : undefined),
+    [topic]
   );
-  const lesson = useMemo(
-    () => getLessonById(subject.id, lessonParam) ?? subject.lessons[0],
-    [subject, lessonParam]
-  );
+
+  // `lesson` was the old name — we keep the local alias so the rest of the
+  // file stays readable. It's actually the current Topic now.
+  const lesson = topic;
 
   const [stage, setStage] = useState<Stage>("barrier");
   const [knowledge, setKnowledge] = useState("");
@@ -124,11 +128,14 @@ export function ChatPage() {
   const hydratedRef = useRef(false);
 
   // ---------------------------------------------------------------------------
-  // Hydrate state from localStorage every time the user/lesson changes.
+  // Hydrate state from localStorage every time the user/topic changes.
   // ---------------------------------------------------------------------------
   useEffect(() => {
     hydratedRef.current = false;
-    const session = loadChatSession(currentUser?.id, subject.id, lesson.id);
+    if (!lesson) {
+      return;
+    }
+    const session = loadChatSession(currentUser?.id, lesson.id);
 
     if (session && session.knowledge) {
       setKnowledge(session.knowledge);
@@ -154,20 +161,19 @@ export function ChatPage() {
     setCompleted(false);
     setRestoredBanner(false);
     hydratedRef.current = true;
-  }, [lesson.id, subject.id, currentUser?.id]);
+  }, [lesson?.id, currentUser?.id]);
 
   // ---------------------------------------------------------------------------
   // Persist session after any meaningful change. We only save once hydrated
   // to avoid clobbering storage with empty initial state.
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    if (!hydratedRef.current || !currentUser?.id) return;
+    if (!hydratedRef.current || !currentUser?.id || !lesson) return;
     if (stage === "barrier" || !knowledge) return;
 
     const next: ChatSession = {
       userId: currentUser.id,
-      subjectId: subject.id,
-      lessonId: lesson.id,
+      topicId: lesson.id,
       knowledge,
       messages,
       reflection,
@@ -186,8 +192,7 @@ export function ChatPage() {
     completed,
     aiSource,
     stage,
-    subject.id,
-    lesson.id,
+    lesson?.id,
     currentUser?.id,
   ]);
 
@@ -203,11 +208,7 @@ export function ChatPage() {
     return <Navigate to="/student" replace />;
   }
 
-  const lessonAlreadyCompleted = currentUser?.id
-    ? getSubjectProgress(currentUser.id, subject.id).completedLessons.includes(
-        lesson.id
-      )
-    : false;
+  const lessonAlreadyCompleted = hasCompletedTopic(currentUser?.id, lesson.id);
 
   const handleBarrierSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -217,14 +218,17 @@ export function ChatPage() {
     setIsThinking(true);
 
     const firstName = currentUser?.name?.split(" ")[0] ?? "друг";
-    const localIntro = `Привет, ${firstName}! Ты написал, что уже знаешь кое-что про «${subject.name}» — это отличная стартовая точка. Я — Дух Знаний, и готовых ответов от меня не жди. Моя задача — вести тебя вопросами, а не решать за тебя.\n\nИтак, по теме «${lesson.title}» (${lesson.topic}): что именно тебе кажется самым запутанным? С чего хочешь начать распутывать клубок?`;
+    const lessonContextLabel = `${lesson.grade} класс · ${lesson.quarter} четверть`;
+    const localIntro = `Привет, ${firstName}! Ты написал, что уже знаешь кое-что про «${subject.name}» — это отличная стартовая точка. Я — Дух Знаний, и готовых ответов от меня не жди. Моя задача — вести тебя вопросами, а не решать за тебя.\n\nИтак, по теме «${lesson.title}» (${lessonContextLabel}): что именно тебе кажется самым запутанным? С чего хочешь начать распутывать клубок?`;
 
     try {
       const intro = await askIntroMessage({
         subject: subject.name,
         lesson: lesson.title,
-        topic: lesson.topic,
+        topic: lessonContextLabel,
         knowledge,
+        grade: lesson.grade,
+        quarter: lesson.quarter,
       });
       setAiSource(intro.source);
       const introMsg: ChatMessage = {
@@ -270,7 +274,7 @@ export function ChatPage() {
     void evaluatePrompt(text, {
       subject: subject.name,
       lesson: lesson.title,
-      topic: lesson.topic,
+      topic: `${lesson.grade} класс · ${lesson.quarter} четверть`,
     }).then((score) => {
       setMessages((prev) =>
         prev.map((m) =>
@@ -293,10 +297,12 @@ export function ChatPage() {
       const reply = await askSocraticReply({
         subject: subject.name,
         lesson: lesson.title,
-        topic: lesson.topic,
+        topic: `${lesson.grade} класс · ${lesson.quarter} четверть`,
         knowledge,
         history: nextHistory,
         latestUserMessage: text,
+        grade: lesson.grade,
+        quarter: lesson.quarter,
       });
 
       setAiSource(reply.source);
@@ -356,8 +362,10 @@ export function ChatPage() {
         {
           subject: subject.name,
           lesson: lesson.title,
-          topic: lesson.topic,
+          topic: `${lesson.grade} класс · ${lesson.quarter} четверть`,
           knowledge,
+          grade: lesson.grade,
+          quarter: lesson.quarter,
         }
       );
       setAiSource(result.source);
@@ -390,7 +398,7 @@ export function ChatPage() {
 
     if (!wasAlreadyCompleted && currentUser?.id) {
       try {
-        completeLesson(currentUser.id, subject.id, lesson.id, xp);
+        completeTopic(currentUser.id, lesson.id, xp);
         touchStreak(currentUser.id);
         // dispatch an app-wide event so the header streak badge
         // updates immediately without a reload
@@ -419,7 +427,7 @@ export function ChatPage() {
     ) {
       return;
     }
-    resetChatSession(currentUser?.id, subject.id, lesson.id);
+    resetChatSession(currentUser?.id, lesson.id);
     hydratedRef.current = false;
     setStage("barrier");
     setKnowledge("");
@@ -460,7 +468,7 @@ export function ChatPage() {
           <div className="chat-side__icon">{lesson.icon}</div>
           <div className="chat-side__title">{lesson.title}</div>
           <div className="chat-side__topic" style={{ color: subject.accent }}>
-            {subject.name} · {lesson.topic}
+            {subject.name} · {lesson.grade} класс · {lesson.quarter} четверть
           </div>
           <p className="chat-side__desc">{lesson.description}</p>
 
@@ -571,9 +579,11 @@ export function ChatPage() {
                 <span className="accent">что ты уже знаешь?</span>
               </h2>
               <p className="barrier__sub">
-                Предмет: <b>{subject.name}</b> · Тема: <b>{lesson.title}</b>.
-                Напиши своими словами всё, что помнишь, даже если это совсем
-                немного. Только после этого ИИ активируется.
+                Предмет: <b>{subject.name}</b> · Тема:{" "}
+                <b>{lesson.title}</b> ({lesson.grade} класс,{" "}
+                {lesson.quarter} четверть). Напиши своими словами всё, что
+                помнишь, даже если это совсем немного. Только после этого
+                ИИ активируется.
               </p>
               <textarea
                 className="barrier__textarea"

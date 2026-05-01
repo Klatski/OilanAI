@@ -18,9 +18,15 @@ export type ChatStage = "start" | "explore" | "reflection" | "prompt-eval";
 
 export interface PromptContext {
   subject: string;
+  /** Topic title shown to the student, e.g. "Линейные уравнения". */
   lesson: string;
+  /** Sub-category inside the subject — kept for backwards compatibility. */
   topic: string;
   knowledge: string;
+  /** School parallel the student is in (5..11), used to adjust depth. */
+  grade?: number;
+  /** Academic quarter (1..4). */
+  quarter?: number;
 }
 
 const COMMON_HEADER = `Ты — «Дух Знаний», ИИ-наставник в образовательной платформе OilanAI (каз. «ойлан» — думай).
@@ -41,7 +47,16 @@ const COMMON_HEADER = `Ты — «Дух Знаний», ИИ-наставник
 - Дроби: пиши как "(числитель) / (знаменатель)".
 - Степени 2, 3, -1 и простые: используй ², ³, ⁻¹.
 - Корень: √(выражение).
-- Умножение между буквами можно опускать (ab), между числами — "·" или "×".`;
+- Умножение между буквами можно опускать (ab), между числами — "·" или "×".
+
+УРОВЕНЬ КЛАССА (ВАЖНО):
+- Тебе передают параметр «класс ученика» (5-11) и текущая четверть.
+- Подстраивай язык, глубину объяснений, словарный запас и сложность примеров под этот класс.
+- 5 класс: простые слова, очень конкретные бытовые примеры, никаких незнакомых терминов без объяснения.
+- 7 класс: можно использовать школьные термины, простые формулы, аналогии из жизни подростка.
+- 11 класс: можно использовать сложную терминологию, выходить на университетский уровень, опираться на знания младших классов.
+- НИКОГДА не давай тему/материал ВЫШЕ заявленного класса (например, не упоминай интегралы в 7 классе).
+- Если ученик 5 класса спрашивает про что-то более продвинутое — мягко скажи: «Это мы будем проходить позже, а пока посмотри на это так…».`;
 
 const STAGE_INSTRUCTIONS: Record<ChatStage, string> = {
   start: `
@@ -136,6 +151,14 @@ const STAGE_INSTRUCTIONS: Record<ChatStage, string> = {
 `,
 };
 
+function gradeLine(grade: number | undefined, quarter: number | undefined): string {
+  if (!grade && !quarter) return "";
+  const parts: string[] = [];
+  if (grade) parts.push(`${grade} класс`);
+  if (quarter) parts.push(`${quarter} четверть`);
+  return `\n- Класс ученика: ${parts.join(", ")}`;
+}
+
 export function buildSystemPrompt(
   stage: ChatStage,
   ctx: PromptContext
@@ -147,7 +170,7 @@ ${STAGE_INSTRUCTIONS[stage]}
 
 КОНТЕКСТ УРОКА:
 - Предмет: ${ctx.subject}
-- Тема: ${ctx.lesson} (${ctx.topic})
+- Тема: ${ctx.lesson} (${ctx.topic})${gradeLine(ctx.grade, ctx.quarter)}
 - Барьер знаний ученика: «${knowledge}»
 `;
 }

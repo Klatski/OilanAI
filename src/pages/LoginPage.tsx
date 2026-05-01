@@ -111,7 +111,7 @@ export function LoginPage() {
             >
               <span className="login-card__hint-role">
                 <span className="login-card__hint-emoji">🎓</span>
-                Ученик
+                Ученик · 7Б
               </span>
               <span className="login-card__hint-creds">
                 student@demo.com / student123
@@ -126,7 +126,7 @@ export function LoginPage() {
             >
               <span className="login-card__hint-role">
                 <span className="login-card__hint-emoji">🧑‍🏫</span>
-                Учитель
+                Учитель · 5А, 7Б, 11В
               </span>
               <span className="login-card__hint-creds">
                 teacher@demo.com / teacher123
@@ -135,8 +135,15 @@ export function LoginPage() {
             </button>
           </div>
           <div className="login-card__hint-note">
-            Ещё есть: dana@demo.com · timur@demo.com · aigerim@demo.com
-            (пароль = имя + 123)
+            Ещё ученики (пароль = имя + 123):
+            <br />
+            <b>dana@demo.com</b> — 11В · <b>timur@demo.com</b> — 5А ·{" "}
+            <b>aigerim@demo.com</b> — 7Б
+          </div>
+          <div className="login-card__hint-note login-card__hint-note--soft">
+            Демо-школа: 3 класса (5А, 7Б, 11В), один учитель — классный
+            руководитель всех трёх. Каждый ученик видит темы своего класса
+            и текущей четверти.
           </div>
         </div>
       </motion.div>

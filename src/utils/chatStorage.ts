@@ -2,20 +2,22 @@ import type { AISource } from "./aiClient";
 import type { ChatMessage } from "../types";
 
 /**
- * Persistent chat history per user × subject × lesson.
+ * Persistent chat history per user × topic.
  *
  * Stored in localStorage under keys like:
- *   oilanai_chat_v1_<userId>_<subjectId>_<lessonId>
+ *   oilanai_chat_v2_<userId>_<topicId>
+ *
+ * v2 schema (post school-structure refactor):
+ *   - keyed by topicId (string) instead of subjectId+lessonId(number).
  *
  * A session keeps the barrier, the whole dialogue, reflection, feedback and
  * XP — so the student can leave any time and continue the Socratic dialogue
- * later, even after the lesson was completed.
+ * later, even after the topic was completed.
  */
 
 export interface ChatSession {
   userId: string;
-  subjectId: string;
-  lessonId: number;
+  topicId: string;
 
   /** Student's answer to the "What I already know" barrier. */
   knowledge: string;
@@ -44,20 +46,19 @@ export interface ChatSession {
   updatedAt: number;
 }
 
-const STORAGE_PREFIX = "oilanai_chat_v1_";
+const STORAGE_PREFIX = "oilanai_chat_v2_";
 
-function keyFor(userId: string, subjectId: string, lessonId: number): string {
-  return `${STORAGE_PREFIX}${userId}_${subjectId}_${lessonId}`;
+function keyFor(userId: string, topicId: string): string {
+  return `${STORAGE_PREFIX}${userId}_${topicId}`;
 }
 
 export function loadChatSession(
   userId: string | undefined,
-  subjectId: string,
-  lessonId: number
+  topicId: string
 ): ChatSession | null {
-  if (!userId) return null;
+  if (!userId || !topicId) return null;
   try {
-    const raw = localStorage.getItem(keyFor(userId, subjectId, lessonId));
+    const raw = localStorage.getItem(keyFor(userId, topicId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ChatSession | null;
     if (!parsed || typeof parsed !== "object") return null;
@@ -69,11 +70,11 @@ export function loadChatSession(
 }
 
 export function saveChatSession(session: ChatSession): void {
-  if (!session.userId) return;
+  if (!session.userId || !session.topicId) return;
   try {
     const payload: ChatSession = { ...session, updatedAt: Date.now() };
     localStorage.setItem(
-      keyFor(session.userId, session.subjectId, session.lessonId),
+      keyFor(session.userId, session.topicId),
       JSON.stringify(payload)
     );
   } catch {
@@ -83,26 +84,24 @@ export function saveChatSession(session: ChatSession): void {
 
 export function resetChatSession(
   userId: string | undefined,
-  subjectId: string,
-  lessonId: number
+  topicId: string
 ): void {
-  if (!userId) return;
+  if (!userId || !topicId) return;
   try {
-    localStorage.removeItem(keyFor(userId, subjectId, lessonId));
+    localStorage.removeItem(keyFor(userId, topicId));
   } catch {
     /* ignore */
   }
 }
 
-/** Lightweight probe — has the student started this lesson before? */
+/** Lightweight probe — has the student started this topic before? */
 export function hasChatSession(
   userId: string | undefined,
-  subjectId: string,
-  lessonId: number
+  topicId: string
 ): boolean {
-  if (!userId) return false;
+  if (!userId || !topicId) return false;
   try {
-    return localStorage.getItem(keyFor(userId, subjectId, lessonId)) !== null;
+    return localStorage.getItem(keyFor(userId, topicId)) !== null;
   } catch {
     return false;
   }

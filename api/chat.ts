@@ -13,6 +13,10 @@ interface ClientPayload {
   lesson?: string;
   topic?: string;
   knowledge?: string;
+  /** School parallel of the student (5..11), used to scale answer depth. */
+  grade?: number;
+  /** Academic quarter (1..4). */
+  quarter?: number;
   messages?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
@@ -50,7 +54,16 @@ const COMMON_HEADER = `Ты — «Дух Знаний», ИИ-наставник
 - Дроби: пиши как "(числитель) / (знаменатель)".
 - Степени 2, 3, -1 и простые: используй ², ³, ⁻¹.
 - Корень: √(выражение).
-- Умножение между буквами можно опускать (ab), между числами — "·" или "×".`;
+- Умножение между буквами можно опускать (ab), между числами — "·" или "×".
+
+УРОВЕНЬ КЛАССА (ВАЖНО):
+- Тебе передают параметр «класс ученика» (5-11) и текущая четверть.
+- Подстраивай язык, глубину объяснений, словарный запас и сложность примеров под этот класс.
+- 5 класс: простые слова, очень конкретные бытовые примеры, никаких незнакомых терминов без объяснения.
+- 7 класс: можно использовать школьные термины, простые формулы, аналогии из жизни подростка.
+- 11 класс: можно использовать сложную терминологию, выходить на университетский уровень, опираться на знания младших классов.
+- НИКОГДА не давай тему/материал ВЫШЕ заявленного класса (например, не упоминай интегралы в 7 классе).
+- Если ученик 5 класса спрашивает про что-то более продвинутое — мягко скажи: «Это мы будем проходить позже, а пока посмотри на это так…».`;
 
 const STAGE_INSTRUCTIONS: Record<ChatStage, string> = {
   start: `
@@ -145,6 +158,14 @@ const STAGE_INSTRUCTIONS: Record<ChatStage, string> = {
 `,
 };
 
+function gradeLine(grade: number | undefined, quarter: number | undefined): string {
+  if (!grade && !quarter) return "";
+  const parts: string[] = [];
+  if (grade) parts.push(`${grade} класс`);
+  if (quarter) parts.push(`${quarter} четверть`);
+  return `\n- Класс ученика: ${parts.join(", ")}`;
+}
+
 function buildSystemPrompt(p: ClientPayload): string {
   const stage: ChatStage = (p.stage as ChatStage) ?? "explore";
   const subject = p.subject ?? "учебный предмет";
@@ -157,7 +178,7 @@ ${STAGE_INSTRUCTIONS[stage]}
 
 КОНТЕКСТ УРОКА:
 - Предмет: ${subject}
-- Тема: ${lesson} (${topic})
+- Тема: ${lesson} (${topic})${gradeLine(p.grade, p.quarter)}
 - Барьер знаний ученика: «${knowledge}»
 `;
 }
