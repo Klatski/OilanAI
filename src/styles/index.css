@@ -100,6 +100,9 @@ textarea {
 
 .app-shell {
   min-height: 100vh;
+  /* dvh tracks the *visible* viewport on mobile (address bar collapse),
+     so nothing is ever hidden behind the browser chrome. */
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -177,7 +180,8 @@ textarea {
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 14px 28px;
+  /* max() keeps the status-bar notch clear in standalone PWA mode */
+  padding: max(14px, env(safe-area-inset-top)) 28px 14px;
   background: rgba(13, 17, 23, 0.75);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
@@ -420,6 +424,7 @@ textarea {
 
 .login-page {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1032,6 +1037,7 @@ textarea {
   display: grid;
   grid-template-columns: 320px 1fr;
   min-height: calc(100vh - 66px);
+  min-height: calc(100dvh - 66px);
 }
 
 .chat-side {
@@ -1647,7 +1653,8 @@ textarea {
   bottom: 0;
   display: flex;
   gap: 10px;
-  padding: 14px 0 22px;
+  /* clear the iPhone home-indicator when it's present */
+  padding: 14px 0 max(22px, env(safe-area-inset-bottom));
   background: linear-gradient(
     180deg,
     transparent 0%,
@@ -2552,7 +2559,7 @@ textarea {
     padding: 20px 16px 60px;
   }
   .app-header {
-    padding: 12px 16px;
+    padding: max(12px, env(safe-area-inset-top)) 16px 12px;
     gap: 12px;
   }
   .app-header__nav {
@@ -2676,7 +2683,7 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 8px 16px;
+  padding: max(8px, env(safe-area-inset-top)) 16px 8px;
   background: linear-gradient(
     90deg,
     rgba(255, 184, 77, 0.9),
@@ -3430,7 +3437,7 @@ body {
     grid-template-columns: 1fr;
   }
   .chat-input {
-    padding: 10px 0 16px;
+    padding: 10px 0 max(16px, env(safe-area-inset-bottom));
     gap: 6px;
   }
   .chat-input__send {
@@ -3460,7 +3467,7 @@ body {
     padding: 16px 12px 60px;
   }
   .app-header {
-    padding: 10px 12px;
+    padding: max(10px, env(safe-area-inset-top)) 12px 10px;
   }
   .barrier__title {
     font-size: 22px;
@@ -4119,5 +4126,197 @@ body {
   .chat-side::-webkit-scrollbar-thumb:hover,
   .chat-window__messages::-webkit-scrollbar-thumb:hover {
     filter: brightness(1.2);
+  }
+}
+
+/* ==========================================================================
+   Mobile UX refinements (phones)
+   - kill iOS focus-zoom (any field < 16px makes Safari zoom the page)
+   - remove the grey tap-flash for an app-like feel
+   - keep the account menu inside narrow viewports
+   - turn the chat sidebar into an off-canvas drawer so the conversation
+     is the primary surface on a phone (instead of being pushed below a
+     tall stack of lesson metadata)
+   ========================================================================== */
+
+a,
+button,
+summary,
+label,
+input,
+textarea,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* iOS zooms the whole page whenever a focused field is < 16px. Bumping the
+   font to 16px on phones keeps the layout stable on focus. */
+@media (max-width: 768px) {
+  .field__input,
+  .barrier__textarea,
+  .chat-input__field {
+    font-size: 16px;
+  }
+}
+
+/* The account dropdown is 340px wide — clamp it so it can't run off a small
+   screen (and anchor it to the viewport edge instead of overflowing). */
+@media (max-width: 480px) {
+  .account-switcher__menu {
+    min-width: 0;
+    width: calc(100vw - 20px);
+    right: -8px;
+  }
+}
+
+/* Lock the page behind the open drawer so only the drawer scrolls. */
+body.drawer-open {
+  overflow: hidden;
+}
+
+/* The drawer handle + close affordance only exist on phones. */
+.chat-mobile-bar,
+.chat-side__close {
+  display: none;
+}
+
+/* Backdrop is rendered on every screen but only lit up on phones. */
+.chat-side__backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  /* The grid is already single-column here; pull the sidebar out of flow
+     and slide it in from the left as a drawer. */
+  .chat-side {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(86vw, 360px);
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    border-right: 1px solid var(--border-strong);
+    border-bottom: none;
+    box-shadow: 18px 0 60px rgba(0, 0, 0, 0.55);
+    padding-top: max(18px, env(safe-area-inset-top));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+  }
+
+  .chat-side--open {
+    transform: translateX(0);
+  }
+
+  /* With the handle bar sharing the chat column, let flex own the height so
+     the messages scroll internally and the bar stays pinned at the top
+     (min-height:100% would otherwise overflow the column by the bar's height). */
+  .chat-window {
+    min-height: 0;
+  }
+
+  .chat-side__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(5, 7, 12, 0.6);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+  }
+
+  .chat-page--side-open .chat-side__backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .chat-side__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: max(12px, env(safe-area-inset-top));
+    right: 12px;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .chat-side__close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+  }
+
+  /* The handle lives at the top of the chat column. Because .chat-main is a
+     flex column stretched to the grid row height, this bar stays pinned
+     while the messages scroll beneath it — no sticky/z-index juggling with
+     the app header needed. */
+  .chat-mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    padding: 10px 14px;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13, 17, 23, 0.9);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .chat-mobile-bar__icon {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    font-size: 20px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .chat-mobile-bar__text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .chat-mobile-bar__title {
+    font-weight: 700;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-mobile-bar__sub {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .chat-mobile-bar__cta {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--subject-accent, var(--accent-2));
+    white-space: nowrap;
   }
 }

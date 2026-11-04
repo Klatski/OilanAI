@@ -159,6 +159,10 @@ export function ChatPage() {
   const [completed, setCompleted] = useState(false);
   const [restoredBanner, setRestoredBanner] = useState(false);
 
+  // Mobile only: the lesson sidebar collapses into an off-canvas drawer so
+  // the conversation stays the primary surface on a phone.
+  const [sideOpen, setSideOpen] = useState(false);
+
   const [netOnline, setNetOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine : true
   );
@@ -180,6 +184,21 @@ export function ChatPage() {
       window.removeEventListener("offline", down);
     };
   }, []);
+
+  // Lock the page scroll behind the open drawer (phones only — on desktop
+  // `sideOpen` is never toggled). Close it with the Escape key too.
+  useEffect(() => {
+    if (!sideOpen) return;
+    document.body.classList.add("drawer-open");
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setSideOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.classList.remove("drawer-open");
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [sideOpen]);
 
   const offlineTree = useMemo(
     () => (lesson ? getOfflineTree(lesson.id) : undefined),
@@ -631,6 +650,7 @@ export function ChatPage() {
     }
     resetChatSession(currentUser?.id, lesson.id);
     hydratedRef.current = false;
+    setSideOpen(false);
     setStage("barrier");
     setKnowledge("");
     setMessages([]);
@@ -668,11 +688,28 @@ export function ChatPage() {
 
   return (
     <div
-      className="chat-page"
+      className={`chat-page ${sideOpen ? "chat-page--side-open" : ""}`}
       style={{ "--subject-accent": subject.accent } as React.CSSProperties}
     >
-      <aside className="chat-side">
-        <Link to={`/student/subject/${subject.id}`} className="chat-side__back">
+      <div
+        className="chat-side__backdrop"
+        onClick={() => setSideOpen(false)}
+        aria-hidden
+      />
+      <aside className={`chat-side ${sideOpen ? "chat-side--open" : ""}`}>
+        <button
+          type="button"
+          className="chat-side__close"
+          onClick={() => setSideOpen(false)}
+          aria-label="Закрыть панель урока"
+        >
+          ✕
+        </button>
+        <Link
+          to={`/student/subject/${subject.id}`}
+          className="chat-side__back"
+          onClick={() => setSideOpen(false)}
+        >
           ← {subject.name}
         </Link>
 
@@ -803,7 +840,10 @@ export function ChatPage() {
         {stage === "chat" && canReflect && !isCompletedView && (
           <button
             className="btn btn--ghost btn--full"
-            onClick={() => setStage("reflection")}
+            onClick={() => {
+              setStage("reflection");
+              setSideOpen(false);
+            }}
           >
             Перейти к рефлексии →
           </button>
@@ -812,7 +852,10 @@ export function ChatPage() {
         {stage === "chat" && isCompletedView && canReflect && (
           <button
             className="btn btn--ghost btn--full"
-            onClick={() => setStage("reflection")}
+            onClick={() => {
+              setStage("reflection");
+              setSideOpen(false);
+            }}
             title="Опыт повторно не начисляется"
           >
             Написать новую рефлексию
@@ -830,6 +873,21 @@ export function ChatPage() {
       </aside>
 
       <main className="chat-main">
+        <button
+          type="button"
+          className="chat-mobile-bar"
+          onClick={() => setSideOpen(true)}
+          aria-label="Открыть панель урока: детали, движок ИИ, шаги"
+        >
+          <span className="chat-mobile-bar__icon">{lesson.icon}</span>
+          <span className="chat-mobile-bar__text">
+            <span className="chat-mobile-bar__title">{lesson.title}</span>
+            <span className="chat-mobile-bar__sub">
+              {subject.name} · детали и шаги урока
+            </span>
+          </span>
+          <span className="chat-mobile-bar__cta">Детали ▸</span>
+        </button>
         <AnimatePresence mode="wait">
           {stage === "barrier" && (
             <motion.form
