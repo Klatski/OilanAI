@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ProgressProvider } from "./context/ProgressContext";
 import { QuarterProvider } from "./context/QuarterContext";
+import { LanguageProvider } from "./context/LanguageContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Header } from "./components/Header";
 import { OfflineBanner } from "./components/OfflineBanner";
@@ -83,14 +84,16 @@ function Shell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <QuarterProvider>
-        <ProgressProvider>
-          <BrowserRouter>
-            <Shell />
-          </BrowserRouter>
-        </ProgressProvider>
-      </QuarterProvider>
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <QuarterProvider>
+          <ProgressProvider>
+            <BrowserRouter>
+              <Shell />
+            </BrowserRouter>
+          </ProgressProvider>
+        </QuarterProvider>
+      </AuthProvider>
+    </LanguageProvider>
   );
 }

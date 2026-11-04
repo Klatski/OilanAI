@@ -7,6 +7,7 @@ import { SubjectGlyph } from "../components/SubjectGlyph";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
 import { useQuarter } from "../context/QuarterContext";
+import { useLang } from "../context/LanguageContext";
 import { getClassByStudentId } from "../data/mockClasses";
 import {
   countTopicsBySubjectGrade,
@@ -19,6 +20,7 @@ export function SubjectPickerPage() {
   const { currentUser } = useAuth();
   const { getUserProgress } = useProgress();
   const { currentQuarter } = useQuarter();
+  const { t } = useLang();
   const navigate = useNavigate();
 
   const studentClass = useMemo(
@@ -67,7 +69,7 @@ export function SubjectPickerPage() {
           </span>
           <div>
             <div className="student-hero__hello">
-              Привет, {currentUser?.name?.split(" ")[0] ?? "друг"}!
+              {t("hello")}, {currentUser?.name?.split(" ")[0] ?? "друг"}!
             </div>
             <div className="student-hero__sub">
               {studentClass ? (

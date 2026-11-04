@@ -2,9 +2,12 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
+import { useLang } from "../context/LanguageContext";
+import { LangSwitch } from "../components/LangSwitch";
 
 export function LoginPage() {
   const { login, currentUser } = useAuth();
+  const { t } = useLang();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -45,12 +48,16 @@ export function LoginPage() {
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.4, ease: "easeOut" }}
       >
+        <div className="login-card__lang">
+          <LangSwitch />
+        </div>
         <div className="login-card__logo">
           <div className="login-card__orb" />
           <h1 className="login-card__title">
             Oilan<span className="accent">AI</span>
           </h1>
-          <p className="login-card__subtitle">Архитектор Смыслов</p>
+          <p className="login-card__subtitle">{t("tagline")}</p>
+          <p className="login-card__slogan">{t("slogan")}</p>
         </div>
 
         <form className="login-card__form" onSubmit={handleSubmit}>
@@ -83,7 +90,7 @@ export function LoginPage() {
           {error && <div className="form-error">{error}</div>}
 
           <button type="submit" className="btn btn--primary btn--full">
-            Войти
+            {t("login")}
           </button>
         </form>
 

@@ -8,7 +8,7 @@ import {
 } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Check, Pin, Puzzle } from "lucide-react";
+import { Sparkles, Check, Pin, Puzzle, Lightbulb } from "lucide-react";
 import { getSubjectById } from "../data/mockSubjects";
 import { getTopicById } from "../data/topics";
 import { useAuth } from "../context/AuthContext";
@@ -98,6 +98,17 @@ const ANSWER_BEGGING_PATTERNS: RegExp[] = [
 
 function looksLikeAnswerBegging(text: string): boolean {
   return ANSWER_BEGGING_PATTERNS.some((re) => re.test(text));
+}
+
+// A few topic-aware "strong question" starters. They model good prompt
+// patterns (ask for guidance / to check reasoning / for a worked example
+// without the answer) — teaching prompt literacy, not just "what to ask".
+function promptStarters(topicTitle: string): string[] {
+  return [
+    `С чего мне начать разбираться в теме «${topicTitle}»? Задай мне первый наводящий вопрос.`,
+    `Я думаю, что… — проверь мою логику и спроси, где я могу ошибаться.`,
+    `Приведи простой пример по теме «${topicTitle}», но не давай готовый ответ — веди меня вопросами.`,
+  ];
 }
 
 function answerBeggingNudge(firstName: string): string {
@@ -209,6 +220,7 @@ export function ChatPage() {
     useState<OfflineBranchSnapshot | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydratedRef = useRef(false);
 
   useEffect(() => {
@@ -1275,6 +1287,29 @@ export function ChatPage() {
                         </div>
                       </div>
                     ) : null}
+                    {!offlineLocked && userMessagesCount < 2 && (
+                      <div className="prompt-starter-panel">
+                        <div className="prompt-starter-panel__title">
+                          <Lightbulb size={14} strokeWidth={2} />
+                          Примеры сильных вопросов — нажми, чтобы подставить
+                        </div>
+                        <div className="prompt-starter-panel__grid">
+                          {promptStarters(lesson.title).map((ex, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              className="prompt-starter"
+                              onClick={() => {
+                                setInput(ex);
+                                inputRef.current?.focus();
+                              }}
+                            >
+                              {ex}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <form
                       className="chat-input"
                       onSubmit={(e) => {
@@ -1283,6 +1318,7 @@ export function ChatPage() {
                       }}
                     >
                       <textarea
+                        ref={inputRef}
                         className="chat-input__field"
                         placeholder={
                           offlineLocked
