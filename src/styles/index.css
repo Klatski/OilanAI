@@ -4518,3 +4518,26 @@ body.drawer-open {
     justify-self: center;
   }
 }
+
+/* ==========================================================================
+   lucide icon tints
+   ========================================================================== */
+
+/* Subject glyphs sit on a coloured gradient chip → render them white. */
+.subject-card__icon,
+.student-hero__avatar,
+.card-game-page__icon,
+.subject-stat__icon {
+  color: #fff;
+}
+
+/* Keep the streak flame warm; the existing grayscale filters on the
+   cold/warm variants still work on the SVG via currentColor. */
+.streak-badge__flame {
+  color: #ff8c46;
+}
+
+/* Tint the "where you struggled" puzzle icon to match its purple card. */
+.feedback-card--struggles .feedback-card__icon {
+  color: var(--magic);
+}

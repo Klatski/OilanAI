@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { MOCK_PROGRESS } from "../data/mockProgress";
 import { SUBJECTS } from "../data/mockSubjects";
+import { SubjectGlyph } from "../components/SubjectGlyph";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
 import {
@@ -346,7 +347,7 @@ export function TeacherDashboard() {
                   className="subject-stat__icon"
                   style={{ background: s.gradient }}
                 >
-                  {s.icon}
+                  <SubjectGlyph subjectId={s.id} size={22} />
                 </div>
                 <div>
                   <div className="subject-stat__name">{s.name}</div>
@@ -422,7 +423,8 @@ export function TeacherDashboard() {
                               className="teacher-table__subject-chip"
                               style={{ borderColor: `${x.accent}60` }}
                             >
-                              {x.icon} {x.completed}
+                              <SubjectGlyph subjectId={x.subjectId} size={12} />{" "}
+                              {x.completed}
                             </span>
                           ))}
                       </div>

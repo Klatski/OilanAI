@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { Sparkles, Check, Pin, Puzzle } from "lucide-react";
 import { getSubjectById } from "../data/mockSubjects";
 import { getTopicById } from "../data/topics";
 import { useAuth } from "../context/AuthContext";
@@ -1027,9 +1028,14 @@ export function ChatPage() {
                     knowledge.trim().length < 10 || offlineBlockedNoScenario
                   }
                 >
-                  {wantsOfflineLesson && offlineTree
-                    ? "Начать оффлайн-сценарий →"
-                    : "Активировать ИИ ✨"}
+                  {wantsOfflineLesson && offlineTree ? (
+                    "Начать оффлайн-сценарий →"
+                  ) : (
+                    <>
+                      Активировать ИИ
+                      <Sparkles size={16} strokeWidth={2} />
+                    </>
+                  )}
                 </button>
               </div>
             </motion.form>
@@ -1447,7 +1453,9 @@ function ReflectionFeedbackBubble(props: {
             style={{ borderColor: "rgba(0, 229, 160, 0.35)" }}
           >
             <div className="feedback-card__head">
-              <span className="feedback-card__icon">✓</span>
+              <span className="feedback-card__icon">
+                <Check size={15} strokeWidth={2.5} />
+              </span>
               <span className="feedback-card__title">
                 Что ты понял сам
               </span>
@@ -1466,7 +1474,7 @@ function ReflectionFeedbackBubble(props: {
                 className="feedback-card__icon"
                 style={{ color: accent }}
               >
-                📌
+                <Pin size={15} strokeWidth={2} />
               </span>
               <span className="feedback-card__title">
                 Что нужно знать
@@ -1482,7 +1490,9 @@ function ReflectionFeedbackBubble(props: {
             style={{ borderColor: "rgba(168, 85, 247, 0.4)" }}
           >
             <div className="feedback-card__head">
-              <span className="feedback-card__icon">🧩</span>
+              <span className="feedback-card__icon">
+                <Puzzle size={15} strokeWidth={2} />
+              </span>
               <span className="feedback-card__title">
                 Где ты застрял
               </span>

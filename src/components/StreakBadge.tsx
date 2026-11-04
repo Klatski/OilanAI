@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Flame } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import {
   isActiveToday,
@@ -46,7 +47,7 @@ export function StreakBadge() {
         className="streak-badge streak-badge--empty"
         title="Заверши первый урок или сыграй в карточки, чтобы зажечь огонёк!"
       >
-        <span className="streak-badge__flame">🔥</span>
+        <Flame className="streak-badge__flame" size={16} strokeWidth={2.25} />
         <span className="streak-badge__days">0</span>
       </div>
     );

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { SUBJECTS } from "../data/mockSubjects";
 import { OnboardingModal } from "../components/OnboardingModal";
+import { SubjectGlyph } from "../components/SubjectGlyph";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
 import { useQuarter } from "../context/QuarterContext";
@@ -169,7 +170,7 @@ export function SubjectPickerPage() {
                   className="subject-card__icon"
                   style={{ background: subject.gradient }}
                 >
-                  {subject.icon}
+                  <SubjectGlyph subjectId={subject.id} size={30} />
                 </div>
               </div>
 

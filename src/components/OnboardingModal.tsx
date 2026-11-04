@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  BrickWall,
+  MessagesSquare,
+  Sparkles,
+  type LucideIcon,
+} from "lucide-react";
 
 /**
  * First-run explainer for the unusual core mechanic: Barrier → Socratic
@@ -12,19 +18,19 @@ import { motion, AnimatePresence } from "framer-motion";
  */
 const SEEN_KEY = "oilanai:onboarding-seen:v1";
 
-const STEPS = [
+const STEPS: { Icon: LucideIcon; title: string; text: string }[] = [
   {
-    icon: "🧱",
+    Icon: BrickWall,
     title: "Барьер знаний",
     text: "Сначала запиши своими словами, что ты уже знаешь по теме. ИИ стартует от твоих мыслей, а не с чистого листа.",
   },
   {
-    icon: "💬",
+    Icon: MessagesSquare,
     title: "Сократовский диалог",
     text: "Дух Знаний не выдаёт готовых ответов — он ведёт тебя наводящими вопросами, чтобы ты дошёл до сути сам.",
   },
   {
-    icon: "✨",
+    Icon: Sparkles,
     title: "Рефлексия",
     text: "В конце ты формулируешь, что понял. Экран «до → после» покажет, как выросло твоё понимание.",
   },
@@ -87,7 +93,9 @@ export function OnboardingModal() {
             <div className="onboarding__steps">
               {STEPS.map((s, i) => (
                 <div className="onboarding__step" key={s.title}>
-                  <div className="onboarding__step-icon">{s.icon}</div>
+                  <div className="onboarding__step-icon">
+                  <s.Icon size={22} strokeWidth={1.9} />
+                </div>
                   <div className="onboarding__step-body">
                     <div className="onboarding__step-title">
                       <span className="onboarding__step-num">{i + 1}</span>

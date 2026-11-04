@@ -3,6 +3,7 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCardGameForSubject } from "../data/mockCardGames";
 import { getSubjectById } from "../data/mockSubjects";
+import { SubjectGlyph } from "../components/SubjectGlyph";
 import { useAuth } from "../context/AuthContext";
 import { touchStreak } from "../utils/streakStorage";
 import type { CardPair } from "../data/mockCardGames";
@@ -175,7 +176,9 @@ export function CardGamePage() {
       </div>
 
       <header className="card-game-page__header">
-        <span className="card-game-page__icon">{subject.icon}</span>
+        <span className="card-game-page__icon">
+          <SubjectGlyph subjectId={subject.id} size={28} />
+        </span>
         <div>
           <h1 className="card-game-page__title">{game.title}</h1>
           <p className="card-game-page__subtitle">{game.subtitle}</p>

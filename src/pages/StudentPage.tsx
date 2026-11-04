@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
 import { useQuarter } from "../context/QuarterContext";
 import { getSubjectById, SUBJECTS } from "../data/mockSubjects";
+import { SubjectGlyph } from "../components/SubjectGlyph";
 import { getClassByStudentId } from "../data/mockClasses";
 import {
   countTopicsBySubjectGrade,
@@ -92,7 +93,7 @@ export function StudentPage() {
                   : undefined
               }
             >
-              <span>{s.icon}</span>
+              <SubjectGlyph subjectId={s.id} size={16} />
               <span className="subject-breadcrumb__tab-name">
                 {s.shortName}
               </span>
@@ -113,7 +114,7 @@ export function StudentPage() {
               className="student-hero__avatar"
               style={{ background: subject.gradient }}
             >
-              {subject.icon}
+              <SubjectGlyph subjectId={subject.id} size={30} />
             </span>
             <div>
               <div className="student-hero__hello">
