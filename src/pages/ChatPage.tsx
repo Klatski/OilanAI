@@ -72,6 +72,42 @@ function aiLessonParams(subjectName: string, lesson: Topic) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Anti-cheat nudge
+// ---------------------------------------------------------------------------
+// The whole premise is "think WITH the AI, don't extract answers from it".
+// So when a student just begs for the answer we catch it on the client and
+// let the Spirit of Knowledge gently redirect them — *before* spending a real
+// AI call. This makes the philosophy visible and instant.
+// ---------------------------------------------------------------------------
+const ANSWER_BEGGING_PATTERNS: RegExp[] = [
+  /да(й|йте)\s+(мне\s+)?(готов\w*\s+)?ответ/i,
+  /скажи\s+(мне\s+)?(сразу\s+)?ответ/i,
+  /как(ой|ов)\s+(правильн\w+\s+)?ответ/i,
+  /прост[оа]\s+(скажи|ответь|дай)\b/i,
+  /реши(ть)?\s+(за\s+меня|вместо\s+меня|это|задач\w*|пример\w*|уравнени\w*)/i,
+  /сделай\s+(за\s+меня|это|домашк\w*|дз)/i,
+  /дай\s+(мне\s+)?(готов\w*\s+)?решени\w*/i,
+  /напиши\s+(мне\s+)?(готов\w*\s+)?(ответ|решени\w*|сочинени\w*|эссе)/i,
+  /не\s+хочу\s+(думать|решать)/i,
+  /give me (the )?answer/i,
+  /just (tell|give) me/i,
+  /(solve|do) (it|this|my homework) for me/i,
+];
+
+function looksLikeAnswerBegging(text: string): boolean {
+  return ANSWER_BEGGING_PATTERNS.some((re) => re.test(text));
+}
+
+function answerBeggingNudge(firstName: string): string {
+  const options = [
+    `Похоже, ты хочешь готовый ответ 🙂 Но я — Дух Знаний, и моя сила не в том, чтобы решить за тебя, а в том, чтобы ты дошёл сам. Давай по шагам: что именно в этой задаче кажется самым непонятным?`,
+    `${firstName}, если я просто выдам ответ — завтра ты его забудешь. Давай разберёмся вместе. С чего бы ты начал, если бы решал сам?`,
+    `Готовый ответ — это тупик, а нам нужен твой путь к нему. Скажи своими словами: что ты уже понял и где именно застрял?`,
+  ];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
 type Stage = "barrier" | "chat" | "reflection" | "done";
 
 // ---------------------------------------------------------------------------
@@ -464,7 +500,6 @@ export function ChatPage() {
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
     setInput("");
-    setIsThinking(true);
 
     // Evaluate the prompt quality in parallel with the main reply.
     // We never block the dialogue on this — the badge just fades in when ready.
@@ -492,6 +527,20 @@ export function ChatPage() {
       );
     });
 
+    // Anti-cheat nudge — redirect answer-begging before spending an AI call.
+    if (looksLikeAnswerBegging(text)) {
+      const fn = currentUser?.name?.split(" ")[0] ?? "друг";
+      const nudge: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        text: answerBeggingNudge(fn),
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, nudge]);
+      return;
+    }
+
+    setIsThinking(true);
     try {
       const reply = await askSocraticReply({
         ...aiLessonParams(subject.name, lesson),
@@ -1155,6 +1204,27 @@ export function ChatPage() {
                     <div className="reflection__feedback-xp">
                       +{xpGained} XP · урок засчитан ✓
                     </div>
+
+                    {knowledge && reflection && (
+                      <div className="growth-compare">
+                        <div className="growth-compare__col growth-compare__col--before">
+                          <div className="growth-compare__label">
+                            С чего ты начал
+                          </div>
+                          <p className="growth-compare__text">{knowledge}</p>
+                        </div>
+                        <div className="growth-compare__arrow" aria-hidden>
+                          →
+                        </div>
+                        <div className="growth-compare__col growth-compare__col--after">
+                          <div className="growth-compare__label">
+                            К чему пришёл
+                          </div>
+                          <p className="growth-compare__text">{reflection}</p>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="reflection__feedback-actions">
                       <button
                         className="btn btn--ghost"

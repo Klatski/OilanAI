@@ -4258,20 +4258,23 @@ body.drawer-open {
     color: var(--text);
   }
 
-  /* The handle lives at the top of the chat column. Because .chat-main is a
-     flex column stretched to the grid row height, this bar stays pinned
-     while the messages scroll beneath it — no sticky/z-index juggling with
-     the app header needed. */
+  /* The handle stays stuck to the top of the viewport (not just the top of
+     the chat column) so it's always reachable no matter how long the chat
+     grows. z-index sits above the app header so it stays visible once the
+     page scrolls past it. */
   .chat-mobile-bar {
+    position: sticky;
+    top: 0;
+    z-index: 25;
     display: flex;
     align-items: center;
     gap: 12px;
     width: 100%;
     text-align: left;
-    padding: 10px 14px;
+    padding: max(10px, env(safe-area-inset-top)) 14px 10px;
     border: none;
     border-bottom: 1px solid var(--border);
-    background: rgba(13, 17, 23, 0.9);
+    background: rgba(13, 17, 23, 0.96);
     -webkit-backdrop-filter: blur(12px);
     backdrop-filter: blur(12px);
     color: var(--text);
@@ -4318,5 +4321,200 @@ body.drawer-open {
     font-weight: 700;
     color: var(--subject-accent, var(--accent-2));
     white-space: nowrap;
+  }
+}
+
+/* ==========================================================================
+   Onboarding modal — first-run explainer of the core 3-step mechanic
+   ========================================================================== */
+
+.onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(5, 7, 12, 0.72);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.onboarding__card {
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  padding: 32px 28px 26px;
+  box-shadow: var(--shadow-card), var(--shadow-glow);
+  text-align: center;
+}
+
+.onboarding__orb {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--grad-accent);
+  box-shadow: 0 0 44px rgba(108, 99, 255, 0.55);
+  position: relative;
+  animation: orbPulse 3s ease-in-out infinite;
+}
+
+.onboarding__orb::after {
+  content: "";
+  position: absolute;
+  inset: 13px;
+  background: var(--bg-surface);
+  border-radius: 50%;
+}
+
+.onboarding__title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.onboarding__lead {
+  margin: 0 0 22px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.onboarding__lead b {
+  color: var(--text);
+}
+
+.onboarding__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.onboarding__step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+}
+
+.onboarding__step-icon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.onboarding__step-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 3px;
+}
+
+.onboarding__step-num {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  border-radius: 50%;
+  background: var(--grad-accent);
+}
+
+.onboarding__step-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.onboarding-reopen {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Growth "before → after" — shown on the lesson-complete screen so the
+   student literally sees how far their understanding moved.
+   ========================================================================== */
+
+.growth-compare {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin: 18px 0 6px;
+}
+
+.growth-compare__col {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.growth-compare__col--after {
+  border-color: rgba(0, 229, 160, 0.4);
+  background: rgba(0, 229, 160, 0.06);
+}
+
+.growth-compare__label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  font-weight: 700;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.growth-compare__col--after .growth-compare__label {
+  color: var(--success);
+}
+
+.growth-compare__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.growth-compare__arrow {
+  align-self: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--success);
+}
+
+@media (max-width: 560px) {
+  .growth-compare {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .growth-compare__arrow {
+    transform: rotate(90deg);
+    justify-self: center;
   }
 }

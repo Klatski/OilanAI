@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { SUBJECTS } from "../data/mockSubjects";
+import { OnboardingModal } from "../components/OnboardingModal";
 import { useAuth } from "../context/AuthContext";
 import { useProgress } from "../context/ProgressContext";
 import { useQuarter } from "../context/QuarterContext";
@@ -52,6 +53,7 @@ export function SubjectPickerPage() {
 
   return (
     <div className="subject-picker">
+      <OnboardingModal />
       <motion.section
         className="subject-picker__hero"
         initial={{ opacity: 0, y: 16 }}
@@ -85,6 +87,15 @@ export function SubjectPickerPage() {
                 <>Выбери предмет, в который хочешь погрузиться сегодня.</>
               )}
             </div>
+            <button
+              type="button"
+              className="link-btn onboarding-reopen"
+              onClick={() =>
+                window.dispatchEvent(new CustomEvent("oilanai:open-onboarding"))
+              }
+            >
+              Как это работает?
+            </button>
           </div>
         </div>
 
