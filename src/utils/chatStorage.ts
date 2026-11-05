@@ -48,6 +48,15 @@ export interface ChatSession {
   /** Last known AI source for the sidebar badge. */
   aiSource: AISource | null;
 
+  /** Integrity summary for this session (independence score + flags).
+   *  Persisted so a teacher view could surface "worked on their own" vs
+   *  "leaned on copy-paste" without re-analysing the whole transcript. */
+  integrity?: {
+    independence: number;
+    pasteEvents: number;
+    flags: string[];
+  } | null;
+
   /** Если true — диалог идёт по оффлайн-дереву (без LLM). */
   offlineLocked?: boolean;
 

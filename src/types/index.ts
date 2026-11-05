@@ -141,10 +141,17 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
   /** Optional visual marker. "reflection-feedback" renders with a highlighted
-   *  "итоговый фидбэк" border so saved sessions can show it distinctly. */
-  kind?: "intro" | "reflection-feedback";
+   *  "итоговый фидбэк" border so saved sessions can show it distinctly.
+   *  "checkpoint" is a periodic "explain in your own words" prompt. */
+  kind?: "intro" | "reflection-feedback" | "checkpoint";
   /** Real-time prompt-quality evaluation attached to user messages. */
   promptQuality?: PromptQualityScore;
+  /** Integrity: this user message was (mostly) pasted rather than typed. */
+  pasted?: boolean;
+  /** Integrity: fraction of this message that arrived via paste (0..1). */
+  pasteRatio?: number;
+  /** Integrity: message appeared faster than it could plausibly be typed. */
+  typedTooFast?: boolean;
   /** When kind === "reflection-feedback", parsed three-block structure. */
   feedbackBlocks?: ReflectionFeedbackBlocks;
 }

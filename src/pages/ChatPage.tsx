@@ -33,6 +33,13 @@ import {
   tierFromScore,
   type PromptTier,
 } from "../utils/promptEvaluator";
+import {
+  analyzeSession,
+  isNudgeWorthyPaste,
+  typingLooksAutomated,
+  xpPenaltyFromSignals,
+  type IntegritySignals,
+} from "../utils/integrityGuard";
 import type {
   ChatMessage,
   PromptQualityScore,
@@ -91,9 +98,18 @@ const ANSWER_BEGGING_PATTERNS: RegExp[] = [
   /дай\s+(мне\s+)?(готов\w*\s+)?решени\w*/i,
   /напиши\s+(мне\s+)?(готов\w*\s+)?(ответ|решени\w*|сочинени\w*|эссе)/i,
   /не\s+хочу\s+(думать|решать)/i,
+  /ответ\s+на\s+(задач\w*|пример\w*|вопрос\w*)/i,
+  /скаж(и|ите)\s+прав\w+/i,
+  /какой\s+(тут\s+)?(будет\s+)?итог/i,
+  /дай\s+подсказк\w*\s+с\s+ответ\w*/i,
+  /напрям\w+\s+ответ/i,
+  /без\s+вопрос\w+\s+(дай|скажи|ответь)/i,
+  /хватит\s+вопрос\w+/i,
   /give me (the )?answer/i,
   /just (tell|give) me/i,
   /(solve|do) (it|this|my homework) for me/i,
+  /what('?s| is) the (right )?answer/i,
+  /tell me (the )?(right )?answer/i,
 ];
 
 function looksLikeAnswerBegging(text: string): boolean {
@@ -120,6 +136,29 @@ function answerBeggingNudge(firstName: string): string {
   return options[Math.floor(Math.random() * options.length)];
 }
 
+// When a student pastes a big chunk of text into the dialogue we don't spend
+// an AI call — we gently ask them to put it in their own words, same pattern
+// as the answer-begging nudge above.
+function pasteNudge(firstName: string): string {
+  const options = [
+    `Похоже, ты вставил(а) готовый текст 📋 Я расту только из твоих собственных мыслей. Перескажи это своими словами — пусть даже короче и проще: что тут главное для тебя?`,
+    `${firstName}, вставленный кусок я вижу, но моя задача — чтобы думал(а) именно ты. Напиши своими словами, что из этого ты понял(а), а что пока нет.`,
+    `Чужой текст — это не твой путь к пониманию. Давай по-честному: своими словами, в одно-два предложения — о чём тут речь?`,
+  ];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+// Periodic "explain in your own words" checkpoint, injected every few turns.
+// Pasted/copied answers tend to fail this because the student can't restate
+// them. It's also just good retrieval-practice pedagogy.
+function checkpointPrompt(firstName: string): string {
+  const options = [
+    `⏸️ Мини-проверка, ${firstName}: прежде чем идём дальше — переформулируй своими словами то, что ты только что понял(а). Можно одним предложением.`,
+    `⏸️ Небольшая пауза: скажи своими словами, к какой мысли мы с тобой сейчас пришли? Так я увижу, что это действительно твоё понимание.`,
+  ];
+  return options[Math.floor(Math.random() * options.length)];
+}
+
 type Stage = "barrier" | "chat" | "reflection" | "done";
 
 // ---------------------------------------------------------------------------
@@ -141,6 +180,8 @@ function computeAdaptiveXp(args: {
   knowledge: string;
   reflection: string;
   messages: ChatMessage[];
+  /** Integrity signals — pastes / copied reflection reduce the award. */
+  integrity?: IntegritySignals;
 }): number {
   const BASE = 40;
 
@@ -168,11 +209,19 @@ function computeAdaptiveXp(args: {
           ((m.promptQuality?.clarity ?? 3) + (m.promptQuality?.depth ?? 3)) / 2,
         0
       ) / scoredMessages.length;
-    // avg is 1..5. Map to -10..+30:
-    qualityBonus = Math.round((avg - 2.5) * 12);
+    // avg is 1..5. Map to -24..+40 — quality of thinking now weighs more
+    // heavily, so "give me the answer" prompts cost real XP.
+    qualityBonus = Math.round((avg - 2.5) * 16);
   }
 
-  const total = BASE + messageBonus + growthBonus + qualityBonus;
+  // Integrity penalty: pasted messages / copied reflection / external-style
+  // writing all pull the award down (floored so a real session never hits 0).
+  const integrityPenalty = args.integrity
+    ? xpPenaltyFromSignals(args.integrity)
+    : 0;
+
+  const total =
+    BASE + messageBonus + growthBonus + qualityBonus - integrityPenalty;
   return Math.max(20, Math.min(150, total));
 }
 
@@ -206,6 +255,8 @@ export function ChatPage() {
   const [aiSource, setAiSource] = useState<AISource | null>(null);
   const [completed, setCompleted] = useState(false);
   const [restoredBanner, setRestoredBanner] = useState(false);
+  // Integrity signals computed on reflection submit — drives the done-view note.
+  const [integrity, setIntegrity] = useState<IntegritySignals | null>(null);
 
   // Mobile only: the lesson sidebar collapses into an off-canvas drawer so
   // the conversation stays the primary surface on a phone.
@@ -222,6 +273,21 @@ export function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const hydratedRef = useRef(false);
+
+  // --- Integrity tracking refs (not state — they must not trigger renders) ---
+  // Chat input: chars arrived via paste, timestamp of first keystroke, and a
+  // flag that the current input was placed by the app (prompt-starter button)
+  // so it isn't mistaken for a paste / impossibly-fast typing.
+  const chatPasteCharsRef = useRef(0);
+  const chatTypeStartRef = useRef<number | null>(null);
+  const chatAppProvidedRef = useRef(false);
+  // Reflection textarea: pasted chars + when the reflection step was opened.
+  const reflectionPasteCharsRef = useRef(0);
+  const reflectionOpenedAtRef = useRef<number | null>(null);
+  // Barrier textarea: chars pasted into the baseline + the derived verdict
+  // (if the baseline itself was pasted we can't trust it for style comparison).
+  const barrierPasteCharsRef = useRef(0);
+  const barrierPastedRef = useRef(false);
 
   useEffect(() => {
     const up = () => setNetOnline(true);
@@ -279,6 +345,8 @@ export function ChatPage() {
       setOfflineBranch(session.offlineBranch ?? null);
       setStage("chat");
       setRestoredBanner(true);
+      setIntegrity(null);
+      barrierPastedRef.current = false;
       const t = setTimeout(() => setRestoredBanner(false), 3500);
       hydratedRef.current = true;
       return () => clearTimeout(t);
@@ -295,6 +363,8 @@ export function ChatPage() {
     setOfflineBranch(null);
     setCompleted(false);
     setRestoredBanner(false);
+    setIntegrity(null);
+    barrierPastedRef.current = false;
     hydratedRef.current = true;
   }, [lesson?.id, currentUser?.id]);
 
@@ -318,6 +388,13 @@ export function ChatPage() {
       aiSource,
       offlineLocked,
       offlineBranch,
+      integrity: integrity
+        ? {
+            independence: integrity.independence,
+            pasteEvents: integrity.pastedMessageCount,
+            flags: integrity.flags,
+          }
+        : null,
       updatedAt: Date.now(),
     };
     saveChatSession(next);
@@ -330,6 +407,7 @@ export function ChatPage() {
     aiSource,
     offlineLocked,
     offlineBranch,
+    integrity,
     stage,
     lesson?.id,
     currentUser?.id,
@@ -342,6 +420,15 @@ export function ChatPage() {
       behavior: "smooth",
     });
   }, [messages, isThinking, stage]);
+
+  // Reset reflection integrity trackers each time the reflection step opens,
+  // so "think time" is measured from entry and paste counting starts fresh.
+  useEffect(() => {
+    if (stage === "reflection") {
+      reflectionOpenedAtRef.current = Date.now();
+      reflectionPasteCharsRef.current = 0;
+    }
+  }, [stage]);
 
   if (!subject || !lesson) {
     return <Navigate to="/student" replace />;
@@ -420,6 +507,11 @@ export function ChatPage() {
     e.preventDefault();
     if (knowledge.trim().length < 10 || isThinking) return;
     if (offlineBlockedNoScenario) return;
+
+    // If the "what I know" baseline was itself mostly pasted, we can't trust it
+    // as a style reference later (the style-jump check is skipped).
+    barrierPastedRef.current =
+      barrierPasteCharsRef.current / Math.max(1, knowledge.trim().length) > 0.6;
 
     setStage("chat");
     setIsThinking(true);
@@ -503,12 +595,33 @@ export function ChatPage() {
       return;
     }
 
+    // --- Integrity flags for this message (paste ratio + typing speed) ------
+    const appProvided = chatAppProvidedRef.current;
+    const pasteChars = chatPasteCharsRef.current;
+    const typeStart = chatTypeStartRef.current;
+    const elapsedMs = typeStart ? Date.now() - typeStart : 0;
+    const pasteRatio = appProvided
+      ? 0
+      : Math.min(1, pasteChars / Math.max(1, text.length));
+    const pasted = pasteRatio >= 0.5;
+    const typedTooFast =
+      !appProvided &&
+      pasteRatio < 0.5 &&
+      typingLooksAutomated(text.length, elapsedMs);
+    // Reset trackers for the next message.
+    chatPasteCharsRef.current = 0;
+    chatTypeStartRef.current = null;
+    chatAppProvidedRef.current = false;
+
     const userMsgId = crypto.randomUUID();
     const userMsg: ChatMessage = {
       id: userMsgId,
       role: "user",
       text,
       timestamp: Date.now(),
+      ...(pasted ? { pasted: true } : {}),
+      ...(pasteRatio > 0 ? { pasteRatio } : {}),
+      ...(typedTooFast ? { typedTooFast: true } : {}),
     };
     const nextHistory = [...messages, userMsg];
     setMessages(nextHistory);
@@ -540,9 +653,23 @@ export function ChatPage() {
       );
     });
 
+    const fn = currentUser?.name?.split(" ")[0] ?? "друг";
+
+    // Paste nudge — a big pasted chunk gets redirected to "say it in your own
+    // words" before we spend an AI call. The flag above still counts toward XP.
+    if (isNudgeWorthyPaste(pasteRatio, text.length)) {
+      const nudge: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "ai",
+        text: pasteNudge(fn),
+        timestamp: Date.now(),
+      };
+      setMessages((prev) => [...prev, nudge]);
+      return;
+    }
+
     // Anti-cheat nudge — redirect answer-begging before spending an AI call.
     if (looksLikeAnswerBegging(text)) {
-      const fn = currentUser?.name?.split(" ")[0] ?? "друг";
       const nudge: ChatMessage = {
         id: crypto.randomUUID(),
         role: "ai",
@@ -570,6 +697,21 @@ export function ChatPage() {
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, aiMsg]);
+
+      // Every 3rd student turn, drop a "say it in your own words" checkpoint.
+      // Retrieval practice + it makes copied answers visible (they can't
+      // restate them). Skipped in offline-tree mode (handled elsewhere).
+      const userTurns = nextHistory.filter((m) => m.role === "user").length;
+      if (userTurns > 0 && userTurns % 3 === 0) {
+        const checkpoint: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "ai",
+          text: checkpointPrompt(fn),
+          timestamp: Date.now(),
+          kind: "checkpoint",
+        };
+        setMessages((prev) => [...prev, checkpoint]);
+      }
     } catch {
       const aiMsg: ChatMessage = {
         id: crypto.randomUUID(),
@@ -603,6 +745,26 @@ export function ChatPage() {
     e.preventDefault();
     if (reflection.trim().length < 10) return;
 
+    // Integrity assessment for the whole session (drives the XP penalty + the
+    // honesty note). Reflection paste ratio + think-time come from the refs.
+    const reflLen = reflection.trim().length;
+    const reflectionPasteRatio = Math.min(
+      1,
+      reflectionPasteCharsRef.current / Math.max(1, reflLen)
+    );
+    const reflectionThinkMs = reflectionOpenedAtRef.current
+      ? Date.now() - reflectionOpenedAtRef.current
+      : 0;
+    const signals = analyzeSession({
+      knowledge,
+      reflection,
+      messages,
+      reflectionPasteRatio,
+      reflectionThinkMs,
+      barrierPasted: barrierPastedRef.current,
+    });
+    setIntegrity(signals);
+
     const wasAlreadyCompleted = lessonAlreadyCompleted || completed;
     const xp = wasAlreadyCompleted
       ? 0
@@ -610,6 +772,7 @@ export function ChatPage() {
           knowledge,
           reflection,
           messages,
+          integrity: signals,
         });
 
     // Show celebratory "done" view only on first-time completion.
@@ -724,6 +887,15 @@ export function ChatPage() {
     setOfflineLocked(false);
     setOfflineBranch(null);
     setRestoredBanner(false);
+    setIntegrity(null);
+    // Reset integrity trackers so a fresh run starts clean.
+    chatPasteCharsRef.current = 0;
+    chatTypeStartRef.current = null;
+    chatAppProvidedRef.current = false;
+    reflectionPasteCharsRef.current = 0;
+    reflectionOpenedAtRef.current = null;
+    barrierPasteCharsRef.current = 0;
+    barrierPastedRef.current = false;
     // re-enable persistence on next tick
     setTimeout(() => {
       hydratedRef.current = true;
@@ -1025,6 +1197,10 @@ export function ChatPage() {
                 placeholder="Я знаю, что…"
                 value={knowledge}
                 onChange={(e) => setKnowledge(e.target.value)}
+                onPaste={(e) => {
+                  barrierPasteCharsRef.current +=
+                    e.clipboardData.getData("text").length;
+                }}
                 rows={6}
               />
               <div className="barrier__meta">
@@ -1124,7 +1300,9 @@ export function ChatPage() {
                   return (
                     <motion.div
                       key={m.id}
-                      className={`msg msg--${m.role}`}
+                      className={`msg msg--${m.role}${
+                        m.kind === "checkpoint" ? " msg--checkpoint" : ""
+                      }`}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.25 }}
@@ -1188,6 +1366,10 @@ export function ChatPage() {
                       placeholder="Я понял, что..."
                       value={reflection}
                       onChange={(e) => setReflection(e.target.value)}
+                      onPaste={(e) => {
+                        reflectionPasteCharsRef.current +=
+                          e.clipboardData.getData("text").length;
+                      }}
                       rows={5}
                     />
                     <div className="reflection__actions">
@@ -1222,6 +1404,38 @@ export function ChatPage() {
                     <div className="reflection__feedback-xp">
                       +{xpGained} XP · урок засчитан ✓
                     </div>
+
+                    {integrity && (
+                      <div
+                        className={`integrity-note integrity-note--${
+                          integrity.flags.length ? "warn" : "ok"
+                        }`}
+                      >
+                        <div className="integrity-note__score">
+                          Самостоятельность: <b>{integrity.independence}%</b>
+                        </div>
+                        {integrity.flags.length > 0 ? (
+                          <>
+                            <div className="integrity-note__text">
+                              Опыт снижен — замечено:
+                            </div>
+                            <ul className="integrity-note__flags">
+                              {integrity.flags.map((f, i) => (
+                                <li key={i}>{f}</li>
+                              ))}
+                            </ul>
+                            <div className="integrity-note__hint">
+                              В следующий раз пиши своими словами — так опыт
+                              полный, а знания остаются с тобой.
+                            </div>
+                          </>
+                        ) : (
+                          <div className="integrity-note__text">
+                            Ты работал(а) сам(а) — полный опыт за честный путь 💎
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {knowledge && reflection && (
                       <div className="growth-compare">
@@ -1287,7 +1501,7 @@ export function ChatPage() {
                         </div>
                       </div>
                     ) : null}
-                    {!offlineLocked && userMessagesCount < 2 && (
+                    {!offlineLocked && userMessagesCount === 0 && (
                       <div className="prompt-starter-panel">
                         <div className="prompt-starter-panel__title">
                           <Lightbulb size={14} strokeWidth={2} />
@@ -1300,6 +1514,11 @@ export function ChatPage() {
                               type="button"
                               className="prompt-starter"
                               onClick={() => {
+                                // App-provided text — don't treat as paste /
+                                // impossibly-fast typing when it's sent.
+                                chatAppProvidedRef.current = true;
+                                chatPasteCharsRef.current = 0;
+                                chatTypeStartRef.current = null;
                                 setInput(ex);
                                 inputRef.current?.focus();
                               }}
@@ -1326,7 +1545,22 @@ export function ChatPage() {
                             : "Напиши свою мысль... (Enter — отправить, Shift+Enter — новая строка)"
                         }
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={(e) => {
+                          // Start the typing clock on the first real keystroke
+                          // (not for app-provided starter text).
+                          if (
+                            chatTypeStartRef.current === null &&
+                            !chatAppProvidedRef.current &&
+                            e.target.value.length > 0
+                          ) {
+                            chatTypeStartRef.current = Date.now();
+                          }
+                          setInput(e.target.value);
+                        }}
+                        onPaste={(e) => {
+                          chatPasteCharsRef.current +=
+                            e.clipboardData.getData("text").length;
+                        }}
                         onKeyDown={handleKey}
                         rows={2}
                       />
