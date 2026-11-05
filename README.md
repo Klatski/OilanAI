@@ -93,6 +93,16 @@ Vercel сам подтянет `api/chat.ts` как serverless-функцию �
 
 ---
 
+## Telegram-бот (@Oilan_aibot)
+
+Тот же «Дух Знаний» и сократовский метод — вторым каналом, в Telegram.
+Реализован как serverless-функция `api/telegram.ts` (`/api/telegram`), использует
+тот же `GEMINI_API_KEY`. Подключение (переменные окружения + вебхук) — в
+[`TELEGRAM_BOT.md`](./TELEGRAM_BOT.md). Токен хранится только в env, в репозиторий
+не попадает.
+
+---
+
 ### Режим C: деплой на Netlify
 
 Аналогично:
@@ -162,7 +172,8 @@ Vercel сам подтянет `api/chat.ts` как serverless-функцию �
 
 ```
 ├── api/
-│   └── chat.ts                 # Vercel serverless proxy для Groq
+│   ├── chat.ts                 # Vercel serverless proxy для Gemini
+│   └── telegram.ts             # Telegram-бот (вебхук /api/telegram)
 ├── netlify/functions/
 │   └── chat.ts                 # Netlify-версия того же
 ├── src/
