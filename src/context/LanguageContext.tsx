@@ -24,6 +24,7 @@ const STRINGS = {
     slogan: "Думай вместе с ИИ",
     hello: "Привет",
     subjects: "Предметы",
+    profile: "Профиль",
     login: "Войти",
   },
   kz: {
@@ -31,6 +32,7 @@ const STRINGS = {
     slogan: "Жасанды интеллектпен бірге ойлан",
     hello: "Сәлем",
     subjects: "Пәндер",
+    profile: "Профиль",
     login: "Кіру",
   },
 } as const;

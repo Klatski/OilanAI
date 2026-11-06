@@ -114,6 +114,17 @@ export function AccountSwitcher() {
               })}
             </div>
             <div className="account-switcher__divider" />
+            {currentUser.role === "student" && (
+              <button
+                className="account-switcher__logout account-switcher__profile"
+                onClick={() => {
+                  setOpen(false);
+                  navigate("/student/profile");
+                }}
+              >
+                🏅 Мой профиль и достижения
+              </button>
+            )}
             <button
               className="account-switcher__logout"
               onClick={handleLogout}

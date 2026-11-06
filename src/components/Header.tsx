@@ -69,6 +69,14 @@ export function Header() {
           >
             {t("subjects")}
           </Link>
+          <Link
+            to="/student/profile"
+            className={`app-header__link ${
+              location.pathname === "/student/profile" ? "active" : ""
+            }`}
+          >
+            {t("profile")}
+          </Link>
           {isOnMapOrChat && (
             <span className="app-header__link app-header__link--muted">
               · текущий урок
@@ -105,7 +113,15 @@ export function Header() {
             {currentQuarter} четверть
           </span>
         )}
-        {currentUser?.role === "student" && <StreakBadge />}
+        {currentUser?.role === "student" && (
+          <Link
+            to="/student/profile"
+            className="streak-badge-link"
+            aria-label="Профиль и достижения"
+          >
+            <StreakBadge />
+          </Link>
+        )}
         <AccountSwitcher />
       </div>
     </header>

@@ -190,7 +190,7 @@ function curriculumAttachments(p: ClientPayload): string {
 }
 
 function buildSystemPrompt(p: ClientPayload): string {
-  const stage: ChatStage = (p.stage as ChatStage) ?? "explore";
+  const stage = parseStage(p.stage);
   const subject = p.subject ?? "учебный предмет";
   const lesson = p.lesson ?? "текущая тема";
   const topic = p.topic ?? lesson;
@@ -223,7 +223,34 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-const REQUEST_TIMEOUT_MS = 12_000;
+const VALID_STAGES: readonly ChatStage[] = [
+  "start",
+  "explore",
+  "reflection",
+  "prompt-eval",
+];
+
+function parseStage(raw: unknown): ChatStage {
+  return VALID_STAGES.includes(raw as ChatStage)
+    ? (raw as ChatStage)
+    : "explore";
+}
+
+/** Timeout for ONE Gemini call. Reflection is a long (~2500 token) answer
+ *  and routinely needs more than 12s. */
+function callTimeoutForStage(stage: ChatStage): number {
+  return stage === "reflection" ? 30_000 : 15_000;
+}
+
+/** Hard budget for the WHOLE model-fallback loop, so the function never
+ *  hangs for minutes (6 models × 2 attempts) and the client gets an answer
+ *  (or a clean 504) quickly. Keep in sync with PROXY_BUDGET in aiClient.ts. */
+function totalBudgetForStage(stage: ChatStage): number {
+  return stage === "reflection" ? 45_000 : 25_000;
+}
+
+/** Don't start a new attempt if less than this is left in the budget. */
+const MIN_ATTEMPT_MS = 3_000;
 
 async function fetchWithTimeout(
   url: string,
@@ -240,7 +267,6 @@ async function fetchWithTimeout(
 }
 
 function temperatureForStage(stage: ChatStage | undefined): number {
-  // Eval should be deterministic; dialogue stays warm/creative.
   return stage === "prompt-eval" ? 0.2 : 0.75;
 }
 
@@ -249,7 +275,8 @@ async function callGemini(
   model: string,
   systemPrompt: string,
   stage: ChatStage,
-  trimmedMessages: Array<{ role: string; content: string }>
+  trimmedMessages: Array<{ role: string; content: string }>,
+  timeoutMs: number
 ): Promise<{ ok: true; text: string } | { ok: false; status: number; err: string }> {
   try {
     const r = await fetchWithTimeout(
@@ -264,9 +291,6 @@ async function callGemini(
           model,
           temperature: temperatureForStage(stage),
           max_tokens: maxTokensForStage(stage),
-          // Disable internal reasoning on Gemini 2.5 thinking models so the
-          // whole token budget goes into the visible reply. Harmless on
-          // non-thinking models.
           reasoning_effort: "none",
           messages: [
             { role: "system", content: systemPrompt },
@@ -274,7 +298,7 @@ async function callGemini(
           ],
         }),
       },
-      REQUEST_TIMEOUT_MS
+      timeoutMs
     );
     if (!r.ok) {
       const body = await r.text();
@@ -326,7 +350,7 @@ export default async function handler(
     return res.status(400).json({ error: "messages[] is required" });
   }
 
-  const stage: ChatStage = (payload.stage as ChatStage) ?? "explore";
+  const stage = parseStage(payload.stage);
 
   // Reflection needs the full dialogue to spot unanswered questions.
   // Prompt-eval is a single-message judgement — no history needed.
@@ -351,16 +375,26 @@ export default async function handler(
   let lastStatus = 0;
   let lastErr = "";
 
-  for (const m of modelChain) {
+  const deadline = Date.now() + totalBudgetForStage(stage);
+  const perCallTimeout = callTimeoutForStage(stage);
+
+  chain: for (const m of modelChain) {
     let attempts = 0;
     while (attempts < 2) {
+      const remaining = deadline - Date.now();
+      if (remaining < MIN_ATTEMPT_MS) {
+        lastStatus = lastStatus || 504;
+        lastErr = lastErr || "Time budget exhausted";
+        break chain;
+      }
       attempts++;
       const result = await callGemini(
         apiKey,
         m,
         systemPrompt,
         stage,
-        trimmedMessages
+        trimmedMessages,
+        Math.min(perCallTimeout, remaining)
       );
       if (result.ok) {
         return res.status(200).json({ text: result.text });
@@ -368,7 +402,7 @@ export default async function handler(
       lastStatus = result.status;
       lastErr = result.err;
 
-      if (result.status === 429) break; // quota — jump to next model immediately
+      if (result.status === 429) break;
 
       const canRetry =
         (result.status === 503 ||

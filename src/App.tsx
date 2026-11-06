@@ -6,6 +6,7 @@ import { LanguageProvider } from "./context/LanguageContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { Header } from "./components/Header";
 import { OfflineBanner } from "./components/OfflineBanner";
+import { AchievementWatcher } from "./components/AchievementWatcher";
 import { LoginPage } from "./pages/LoginPage";
 import { SubjectPickerPage } from "./pages/SubjectPickerPage";
 import { StudentPage } from "./pages/StudentPage";
@@ -13,6 +14,7 @@ import { ChatPage } from "./pages/ChatPage";
 import { CardGamePage } from "./pages/CardGamePage";
 import { TeacherDashboard } from "./pages/TeacherDashboard";
 import { ScenarioEditorPage } from "./pages/ScenarioEditorPage";
+import { ProfilePage } from "./pages/ProfilePage";
 
 function Shell() {
   const { currentUser } = useAuth();
@@ -20,6 +22,7 @@ function Shell() {
   return (
     <div className="app-shell">
       <OfflineBanner />
+      {currentUser?.role === "student" && <AchievementWatcher />}
       {currentUser && <Header />}
       <main className="app-main">
         <Routes>
@@ -38,6 +41,14 @@ function Shell() {
             element={
               <ProtectedRoute role="student">
                 <StudentPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/profile"
+            element={
+              <ProtectedRoute role="student">
+                <ProfilePage />
               </ProtectedRoute>
             }
           />

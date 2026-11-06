@@ -100,9 +100,39 @@ export function saveChatSession(session: ChatSession): void {
       keyFor(session.userId, session.topicId),
       JSON.stringify(payload)
     );
+    // Lets app-wide listeners (achievements) react without polling.
+    window.dispatchEvent(new CustomEvent("oilanai:chat-saved"));
   } catch {
     /* quota / private mode — silently ignore */
   }
+}
+
+/** All saved sessions of one user (any topic). */
+export function listChatSessions(userId: string | undefined): ChatSession[] {
+  if (!userId) return [];
+  const prefix = `${STORAGE_PREFIX}${userId}_`;
+  const out: ChatSession[] = [];
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(prefix)) continue;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) ?? "null");
+        if (
+          parsed &&
+          parsed.userId === userId &&
+          Array.isArray(parsed.messages)
+        ) {
+          out.push(parsed as ChatSession);
+        }
+      } catch {
+        /* skip a corrupted entry */
+      }
+    }
+  } catch {
+    /* localStorage unavailable */
+  }
+  return out;
 }
 
 export function resetChatSession(

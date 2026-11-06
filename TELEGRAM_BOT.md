@@ -74,6 +74,22 @@ https://api.telegram.org/bot<ТОКЕН>/getWebhookInfo
 
 Открой бота `@Oilan_aibot` в Telegram и нажми **Start**.
 
+### 5. Хранилище диалогов (рекомендуется)
+
+Vercel запускает функцию в нескольких экземплярах и периодически их
+перезапускает, поэтому история диалога в памяти может теряться или
+«раздваиваться» (бот отвечает на старый вопрос, забывает тему). Чтобы этого не
+было, подключи бесплатный Redis:
+
+Vercel → проект → **Storage → Upstash for Redis (или KV) → Connect**. Vercel сам
+добавит переменные `KV_REST_API_URL` / `KV_REST_API_TOKEN` (или
+`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`) — бот подхватит любую
+пару. Сделай **Redeploy** и проверь `/api/telegram`: в ответе должно быть
+`"sessionStore":"redis"`.
+
+Без Redis бот тоже работает (`"sessionStore":"memory"`), но диалог может
+сбрасываться при перезапуске функции.
+
 ---
 
 ## Заметки

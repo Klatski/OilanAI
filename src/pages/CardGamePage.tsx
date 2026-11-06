@@ -6,6 +6,7 @@ import { getSubjectById } from "../data/mockSubjects";
 import { SubjectGlyph } from "../components/SubjectGlyph";
 import { useAuth } from "../context/AuthContext";
 import { touchStreak } from "../utils/streakStorage";
+import { recordCardGame } from "../utils/activityLog";
 import type { CardPair } from "../data/mockCardGames";
 
 type Side = "term" | "def";
@@ -73,6 +74,7 @@ export function CardGamePage() {
     setEndedAt(Date.now());
     if (currentUser?.id) {
       touchStreak(currentUser.id);
+      recordCardGame(currentUser.id);
       window.dispatchEvent(new CustomEvent("oilanai:streak-changed"));
     }
   }, [allMatched, endedAt, currentUser?.id]);

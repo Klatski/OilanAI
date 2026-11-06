@@ -94,7 +94,22 @@ function maxTokensForStage(stage: ChatStage): number {
   }
 }
 
-const REQUEST_TIMEOUT_MS = 12_000;
+/** Timeout for ONE direct Gemini call. Reflection is a long answer. */
+function callTimeoutForStage(stage: ChatStage): number {
+  return stage === "reflection" ? 30_000 : 15_000;
+}
+
+/** Budget for the whole direct-call fallback loop (same as the server). */
+function totalBudgetForStage(stage: ChatStage): number {
+  return stage === "reflection" ? 45_000 : 25_000;
+}
+
+/** How long we wait for /api/chat: server budget + network slack. */
+function proxyTimeoutForStage(stage: ChatStage): number {
+  return totalBudgetForStage(stage) + 5_000;
+}
+
+const MIN_ATTEMPT_MS = 3_000;
 
 function fetchWithTimeout(
   url: string,
@@ -112,45 +127,65 @@ async function tryProxy(
   params: SocraticRequestParams
 ): Promise<string | null> {
   if (proxyAvailable === false) return null;
-  try {
-    const res = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        stage: params.stage,
-        subject: params.subject,
-        lesson: params.lesson,
-        topic: params.topic,
-        knowledge: params.knowledge,
-        grade: params.grade,
-        quarter: params.quarter,
-        programBasis: params.programBasis,
-        curriculumModule: params.curriculumModule,
-        learningGoal: params.learningGoal,
-        prerequisites: params.prerequisites,
-        messages: toOpenAIMessages(params.history),
-      }),
-    });
+  // Offline: don't burn a timeout, go straight to the local fallback.
+  if (typeof navigator !== "undefined" && !navigator.onLine) return null;
 
-    if (res.status === 404) {
-      proxyAvailable = false;
-      return null;
-    }
-    if (!res.ok) return null;
-    const data = (await res.json()) as { text?: string; error?: string };
-    if (!data?.text) return null;
-    proxyAvailable = true;
-    return sanitizeMath(data.text.trim());
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      "/api/chat",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage: params.stage,
+          subject: params.subject,
+          lesson: params.lesson,
+          topic: params.topic,
+          knowledge: params.knowledge,
+          grade: params.grade,
+          quarter: params.quarter,
+          programBasis: params.programBasis,
+          curriculumModule: params.curriculumModule,
+          learningGoal: params.learningGoal,
+          prerequisites: params.prerequisites,
+          messages: toOpenAIMessages(params.history),
+        }),
+      },
+      proxyTimeoutForStage(params.stage)
+    );
   } catch {
+    // Network blip / timeout — transient. Do NOT disable the proxy for the
+    // rest of the session, otherwise one lost packet downgrades the student
+    // to the local simulator until a page reload.
+    return null;
+  }
+
+  if (res.status === 404) {
+    // No serverless function deployed (e.g. plain `vite dev`) — permanent.
     proxyAvailable = false;
     return null;
   }
+  if (!res.ok) return null;
+
+  let data: { text?: string; error?: string };
+  try {
+    data = (await res.json()) as { text?: string; error?: string };
+  } catch {
+    // 200 but not JSON → SPA fallback served index.html; there is no proxy.
+    proxyAvailable = false;
+    return null;
+  }
+  if (!data?.text) return null;
+  proxyAvailable = true;
+  return sanitizeMath(data.text.trim());
 }
 
 async function callGeminiOnce(
   model: string,
   systemPrompt: string,
-  params: SocraticRequestParams
+  params: SocraticRequestParams,
+  timeoutMs: number
 ): Promise<{ ok: true; text: string } | { ok: false; status: number }> {
   try {
     const res = await fetchWithTimeout(
@@ -175,7 +210,7 @@ async function callGeminiOnce(
           ],
         }),
       },
-      REQUEST_TIMEOUT_MS
+      timeoutMs
     );
     if (!res.ok) {
       return { ok: false, status: res.status };
@@ -212,11 +247,24 @@ async function tryGeminiDirect(
   //   - 429 (quota / rate-limit)  → IMMEDIATELY move to next model (its quota is separate)
   //   - 503 / 502 / network error → retry once with small backoff, then next model
   //   - other errors (401, 400…)  → stop
+  const deadline = Date.now() + totalBudgetForStage(params.stage);
+  const perCallTimeout = callTimeoutForStage(params.stage);
+
   for (const model of MODEL_FALLBACK_CHAIN) {
     let attempts = 0;
     while (attempts < 2) {
+      const remaining = deadline - Date.now();
+      if (remaining < MIN_ATTEMPT_MS) {
+        console.warn("[OilanAI] Gemini time budget exhausted, using fallback");
+        return null;
+      }
       attempts++;
-      const result = await callGeminiOnce(model, systemPrompt, params);
+      const result = await callGeminiOnce(
+        model,
+        systemPrompt,
+        params,
+        Math.min(perCallTimeout, remaining)
+      );
       if (result.ok) {
         if (model !== VITE_GEMINI_MODEL || attempts > 1) {
           console.info(
