@@ -46,7 +46,12 @@ import type {
   ReflectionFeedbackBlocks,
   Topic,
 } from "../types";
-import { getOfflineTree, hasOfflineTree } from "../data/offlineDialogues/registry";
+import {
+  getOfflineTree,
+  hasOfflineTree,
+  scenarioOrigin,
+} from "../data/offlineDialogues/registry";
+import { ackForOption } from "../data/offlineDialogues/buildLessonTree";
 import {
   readForceOffline,
   shouldUseOfflineLesson,
@@ -436,6 +441,20 @@ export function ChatPage() {
 
   const lessonAlreadyCompleted = hasCompletedTopic(currentUser?.id, lesson.id);
 
+  // Учитель мог изменить сценарий, пока ученик был посередине урока: если
+  // сохранённого узла больше нет, не оставляем ученика без кнопок — даём
+  // перейти к рефлексии.
+  if (
+    offlineLocked &&
+    offlineTree &&
+    offlineBranch &&
+    !offlineBranch.atTerminal &&
+    !offlineTree.nodes[offlineBranch.nodeId]
+  ) {
+    // setState во время рендера допустим: условие сразу станет ложным.
+    setOfflineBranch({ ...offlineBranch, atTerminal: true });
+  }
+
   const runOfflineAdvance = (userVisible: string, chosen: OfflineTreeOption) => {
     if (!offlineTree || !offlineBranch || offlineBranch.atTerminal) return;
 
@@ -477,14 +496,17 @@ export function ChatPage() {
       );
     });
 
+    const fromNode = getNode(offlineTree, offlineBranch.nodeId);
     const nextNode = getNode(offlineTree, chosen.nextNodeId);
     if (!nextNode) return;
 
     const fn = currentUser?.name?.split(" ")[0] ?? "друг";
-    const aiText = renderOfflineTemplate(nextNode.aiText, {
+    const ack = fromNode ? ackForOption(offlineTree, fromNode, chosen) : "";
+    const rendered = renderOfflineTemplate(nextNode.aiText, {
       firstName: fn,
       knowledge,
     });
+    const aiText = ack ? `${ack}\n\n${rendered}` : rendered;
     const aiMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "ai",
@@ -494,10 +516,13 @@ export function ChatPage() {
     setMessages((prev) => [...prev, aiMsg]);
     setOfflineBranch((prev) => {
       if (!prev || prev.atTerminal) return prev;
+      const missed = prev.missed ?? [];
+      const focus = nextNode.missedFocus;
       return {
         nodeId: nextNode.id,
         turns: prev.turns + 1,
         atTerminal: nodeIsTerminal(nextNode),
+        missed: focus && !missed.includes(focus) ? [...missed, focus] : missed,
       };
     });
     setAiSource("offline");
@@ -786,8 +811,20 @@ export function ChatPage() {
     let feedbackBlocks: ReflectionFeedbackBlocks | undefined;
 
     if (offlineLocked && offlineTree) {
-      const blocks = offlineTree.reflectionOutcome;
-      feedbackBlocks = blocks;
+      const base = offlineTree.reflectionOutcome;
+      const missed = offlineBranch?.missed ?? [];
+      feedbackBlocks =
+        missed.length > 0
+          ? {
+              ...base,
+              struggles: `Сегодня ты спотыкался(ась) на шагах: ${missed.join(
+                "; "
+              )}. Вернись к ним на следующем занятии — именно там рост. ${base.struggles}`,
+            }
+          : {
+              ...base,
+              validation: `${base.validation} Все проверочные шаги ты прошёл(ла) без подсказок.`,
+            };
       feedbackText =
         "Оффлайн: итог по теме собран из заготовленных блоков (без генеративного ИИ).";
       setAiSource("offline");
@@ -1020,7 +1057,9 @@ export function ChatPage() {
           </div>
           {offlineTree ? (
             <p className="chat-side__offline-hint">
-              Для этой темы есть оффлайн-сценарий (в бандле приложения).
+              {scenarioOrigin(lesson.id) === "custom"
+                ? "Для этой темы есть оффлайн-сценарий от учителя."
+                : "Для этой темы есть готовый оффлайн-сценарий."}
             </p>
           ) : (
             <p className="chat-side__offline-hint chat-side__offline-hint--warn">

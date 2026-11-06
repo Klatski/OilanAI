@@ -19,6 +19,8 @@ export interface OfflineBranchSnapshot {
   nodeId: string;
   turns: number;
   atTerminal: boolean;
+  /** Шаги оффлайн-сценария, на которых ученик ошибся или попросил подсказку. */
+  missed?: string[];
 }
 
 export interface ChatSession {

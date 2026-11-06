@@ -12,6 +12,7 @@ import { StudentPage } from "./pages/StudentPage";
 import { ChatPage } from "./pages/ChatPage";
 import { CardGamePage } from "./pages/CardGamePage";
 import { TeacherDashboard } from "./pages/TeacherDashboard";
+import { ScenarioEditorPage } from "./pages/ScenarioEditorPage";
 
 function Shell() {
   const { currentUser } = useAuth();
@@ -62,6 +63,14 @@ function Shell() {
             element={
               <ProtectedRoute role="teacher">
                 <TeacherDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/teacher/scenarios"
+            element={
+              <ProtectedRoute role="teacher">
+                <ScenarioEditorPage />
               </ProtectedRoute>
             }
           />

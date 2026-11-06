@@ -17,15 +17,20 @@ export function getNode(tree: OfflineDialogueTree, nodeId: string): OfflineTreeN
   return tree.nodes[nodeId];
 }
 
-/** Подбор ветки по ключевым словам; иначе — последняя опция как «другое». */
+/**
+ * Подбор ветки по ключевым словам; иначе — вариант «не уверен(а)» (ведёт в
+ * подсказку), а если его нет — последняя опция как «другое».
+ */
 export function matchOfflineOption(
   options: OfflineTreeOption[],
   userText: string
 ): OfflineTreeOption {
+  const fallback =
+    options.find((o) => o.kind === "unsure") ?? options[options.length - 1];
   const t = userText.trim().toLowerCase();
-  if (!t) return options[options.length - 1];
+  if (!t) return fallback;
 
-  let best: OfflineTreeOption = options[options.length - 1];
+  let best: OfflineTreeOption = fallback;
   let bestScore = -1;
 
   for (const opt of options) {
@@ -44,7 +49,7 @@ export function matchOfflineOption(
     const byLabel = options.find((o) =>
       t.includes(o.label.slice(0, Math.min(12, o.label.length)).toLowerCase())
     );
-    return byLabel ?? options[options.length - 1];
+    return byLabel ?? fallback;
   }
 
   return best;

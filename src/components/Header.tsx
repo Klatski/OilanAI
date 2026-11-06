@@ -42,6 +42,25 @@ export function Header() {
         </span>
       </Link>
 
+      {currentUser && currentUser.role === "teacher" && (
+        <nav className="app-header__nav">
+          <Link
+            to="/teacher"
+            className={`app-header__link ${location.pathname === "/teacher" ? "active" : ""}`}
+          >
+            Аналитика
+          </Link>
+          <Link
+            to="/teacher/scenarios"
+            className={`app-header__link ${
+              location.pathname.startsWith("/teacher/scenarios") ? "active" : ""
+            }`}
+          >
+            Сценарии уроков
+          </Link>
+        </nav>
+      )}
+
       {currentUser && currentUser.role === "student" && (
         <nav className="app-header__nav">
           <Link

@@ -1,27 +1,3 @@
-/**
- * Telegram bot webhook for OilanAI — "Дух Знаний" in a chat.
- *
- * A second client for the platform: the same Socratic philosophy (never give
- * the answer, guide with questions) reachable from Telegram. Deployed as a
- * Vercel serverless function at `/api/telegram`.
- *
- * Flow mirrors the web app:
- *   /start → choose a topic → "what do you already know?" barrier → Socratic
- *   dialogue → /done to get the structured reflection feedback.
- *
- * SECRETS: the bot token and Gemini key are read ONLY from environment
- * variables — never hard-code them. Configure on Vercel:
- *   TELEGRAM_BOT_TOKEN       — from @BotFather (required)
- *   TELEGRAM_WEBHOOK_SECRET  — optional; if set, we verify Telegram's
- *                              `X-Telegram-Bot-Api-Secret-Token` header
- *   GEMINI_API_KEY           — same key the web proxy uses (required)
- *   GEMINI_MODEL             — optional, default gemini-2.5-flash
- *
- * State is kept in-memory (a Map), so it resets on cold starts. That's fine
- * for a demo; for production swap `sessions` for Vercel KV / Redis.
- */
-
-// Allow the Gemini round-trip to exceed the default Hobby 10s budget.
 export const config = { maxDuration: 30 };
 
 const GEMINI_OPENAI_ENDPOINT =
@@ -30,9 +6,6 @@ const DEFAULT_MODEL = "gemini-2.5-flash";
 const TG_API = "https://api.telegram.org";
 const REQUEST_TIMEOUT_MS = 20_000;
 
-// ---------------------------------------------------------------------------
-// Minimal Vercel req/res shapes (self-contained, no @vercel/node dependency).
-// ---------------------------------------------------------------------------
 interface VercelRequest {
   method?: string;
   body?: unknown;
@@ -47,9 +20,6 @@ interface VercelResponse {
   end: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Socratic system prompt (compact copy of the web proxy's philosophy).
-// ---------------------------------------------------------------------------
 type Stage = "start" | "explore" | "reflection";
 
 const COMMON_HEADER = `Ты — «Дух Знаний», ИИ-наставник платформы OilanAI (каз. «ойлан» — думай).
@@ -90,9 +60,6 @@ ${STAGE[stage]}
 - Барьер знаний ученика: «${k}»`;
 }
 
-// ---------------------------------------------------------------------------
-// Gemini call with model fallback (quota on each model is separate).
-// ---------------------------------------------------------------------------
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -190,7 +157,6 @@ async function askGemini(
   return "Хм, связь с наставником на секунду прервалась 🌊 Попробуй отправить сообщение ещё раз.";
 }
 
-/** Turn the tagged reflection reply into a clean Telegram message. */
 function formatReflection(raw: string): string {
   const pick = (tag: string): string => {
     const m = raw.match(new RegExp(`\\[${tag}\\]([\\s\\S]*?)\\[\\/${tag}\\]`, "i"));
@@ -207,9 +173,6 @@ function formatReflection(raw: string): string {
   return parts.join("\n\n");
 }
 
-// ---------------------------------------------------------------------------
-// Light anti-cheat nudge — same idea as the web app.
-// ---------------------------------------------------------------------------
 const BEGGING = [
   /да(й|йте)\s+(мне\s+)?(готов\w*\s+)?ответ/i,
   /скажи\s+(мне\s+)?(сразу\s+)?ответ/i,
@@ -222,9 +185,6 @@ function looksLikeBegging(t: string): boolean {
   return BEGGING.some((re) => re.test(t));
 }
 
-// ---------------------------------------------------------------------------
-// In-memory session store (resets on cold start — fine for a demo).
-// ---------------------------------------------------------------------------
 type ChatStage = "await_topic" | "await_barrier" | "chat" | "await_reflection";
 interface Session {
   stage: ChatStage;
@@ -243,7 +203,6 @@ function getSession(chatId: number): Session {
     sessions.set(chatId, s);
   }
   s.updatedAt = Date.now();
-  // Cheap eviction so the Map can't grow unbounded on a warm instance.
   if (sessions.size > MAX_SESSIONS) {
     let oldestId: number | null = null;
     let oldest = Infinity;
@@ -258,9 +217,6 @@ function getSession(chatId: number): Session {
   return s;
 }
 
-// ---------------------------------------------------------------------------
-// Telegram helpers
-// ---------------------------------------------------------------------------
 async function tg(method: string, body: unknown): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
@@ -275,12 +231,10 @@ async function tg(method: string, body: unknown): Promise<void> {
       10_000
     );
   } catch {
-    /* best-effort */
   }
 }
 
 async function sendMessage(chatId: number, text: string): Promise<void> {
-  // Telegram caps messages at 4096 chars — split on paragraph boundaries.
   const CHUNK = 3800;
   if (text.length <= CHUNK) {
     await tg("sendMessage", { chat_id: chatId, text });
@@ -298,9 +252,6 @@ async function sendMessage(chatId: number, text: string): Promise<void> {
 const sendTyping = (chatId: number) =>
   tg("sendChatAction", { chat_id: chatId, action: "typing" });
 
-// ---------------------------------------------------------------------------
-// Bot copy
-// ---------------------------------------------------------------------------
 const WELCOME = `Привет! Я — Дух Знаний из OilanAI 🌊
 Я не даю готовых ответов. Я веду тебя вопросами, чтобы ты дошёл(ла) сам(а) — так знания остаются с тобой.
 
@@ -318,13 +269,9 @@ const HELP = `Команды:
 3) я веду тебя вопросами
 4) /done — и я соберу разбор: что ты понял сам, что надо знать, где застревал.`;
 
-// ---------------------------------------------------------------------------
-// Core message handling
-// ---------------------------------------------------------------------------
 async function handleText(chatId: number, text: string): Promise<void> {
   const trimmed = text.trim();
 
-  // --- Commands ---
   if (trimmed.startsWith("/")) {
     const cmd = trimmed.split(/\s+/)[0].replace(/@.*$/, "").toLowerCase();
     if (cmd === "/start") {
@@ -359,7 +306,6 @@ async function handleText(chatId: number, text: string): Promise<void> {
 
   const s = getSession(chatId);
 
-  // --- Stage: waiting for a topic ---
   if (s.stage === "await_topic") {
     s.topic = trimmed.slice(0, 200);
     s.stage = "await_barrier";
@@ -370,7 +316,6 @@ async function handleText(chatId: number, text: string): Promise<void> {
     return;
   }
 
-  // --- Stage: waiting for the "what I know" barrier ---
   if (s.stage === "await_barrier") {
     s.knowledge = trimmed.slice(0, 1500);
     s.stage = "chat";
@@ -383,7 +328,6 @@ async function handleText(chatId: number, text: string): Promise<void> {
     return;
   }
 
-  // --- Stage: reflection ---
   if (s.stage === "await_reflection") {
     const reflectionSeed = `Я закончил(а). Вот моя рефлексия по теме «${s.topic}»: «${trimmed}». Пересмотри весь наш диалог и дай итоговый разбор строго в трёх блоках с тегами.`;
     const history = [...s.messages, { role: "user" as const, content: reflectionSeed }];
@@ -391,11 +335,10 @@ async function handleText(chatId: number, text: string): Promise<void> {
     const raw = await askGemini("reflection", s.topic, s.knowledge, history);
     await sendMessage(chatId, formatReflection(raw));
     await sendMessage(chatId, "Это твой разбор ✨ Хочешь взять новую тему? Нажми /new.");
-    s.stage = "chat"; // allow continuing the dialogue if they keep typing
+    s.stage = "chat";
     return;
   }
 
-  // --- Stage: main Socratic dialogue ---
   s.messages.push({ role: "user", content: trimmed.slice(0, 2000) });
 
   if (looksLikeBegging(trimmed)) {
@@ -412,14 +355,10 @@ async function handleText(chatId: number, text: string): Promise<void> {
   await sendMessage(chatId, reply);
 }
 
-// ---------------------------------------------------------------------------
-// Webhook entry point
-// ---------------------------------------------------------------------------
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  // Health check / helper on GET.
   if (req.method === "GET") {
     res.setHeader("Content-Type", "application/json");
     return res.status(200).json({
@@ -438,7 +377,6 @@ export default async function handler(
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Optional webhook secret verification.
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (expected) {
     const got = req.headers?.["x-telegram-bot-api-secret-token"];
@@ -469,6 +407,5 @@ export default async function handler(
     }
   }
 
-  // Always 200 so Telegram doesn't re-deliver the same update.
   return res.status(200).json({ ok: true });
 }

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import { MOCK_PROGRESS } from "../data/mockProgress";
 import { SUBJECTS } from "../data/mockSubjects";
 import { SubjectGlyph } from "../components/SubjectGlyph";
@@ -239,6 +240,9 @@ export function TeacherDashboard() {
             ИИ.
           </p>
         </div>
+        <Link to="/teacher/scenarios" className="btn btn--ghost teacher-hero__cta">
+          ✎ Сценарии офлайн-уроков
+        </Link>
       </motion.div>
 
       <section className="class-switcher">
